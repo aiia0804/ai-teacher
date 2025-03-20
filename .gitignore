@@ -1,0 +1,16 @@
+# 忽略 src/models/ 下的特定子目錄
+src/models/stt_models/
+src/models/llm_models/
+src/models/tts_models/
+
+# 忽略所有 .wav 檔案
+*.wav
+*.mp3
+
+# 忽略 cache 檔案
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
+*.cache
