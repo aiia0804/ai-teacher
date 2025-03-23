@@ -5,67 +5,8 @@ import queue
 import re
 import torch
 from pathlib import Path
-from typing import Optional, Union, List, Dict, Any, Callable, Tuple, Generator
-from transformers import AutoTokenizer, BitsAndBytesConfig, Gemma3ForCausalLM, StoppingCriteria, StoppingCriteriaList
-
-class StreamingStoppingCriteria(StoppingCriteria):
-    """
-    自定義停止條件，實現真正的逐token流式輸出
-    """
-    def __init__(
-        self, 
-        tokenizer, 
-        callback: Callable[[str], None],
-        eos_token_id: int, 
-        max_new_tokens: int, 
-        min_sentence_length: int = 8
-    ):
-        self.tokenizer = tokenizer
-        self.callback = callback
-        self.eos_token_id = eos_token_id
-        self.max_new_tokens = max_new_tokens
-        self.min_sentence_length = min_sentence_length
-        self.token_count = 0
-        self.current_sentence = ""
-        
-        # 過濾器
-        self.emoji_pattern = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F]+", flags=re.UNICODE)
-        self.markdown_pattern = re.compile(r"^\s*\d+\.\s+\*\*.*\*\*")
-    
-    def filter_output(self, text: str) -> str:
-        """過濾輸出，移除表情符號和特殊格式"""
-        text = self.emoji_pattern.sub("", text)
-        text = self.markdown_pattern.sub("", text)
-        return text
-    
-    def __call__(self, input_ids, scores, **kwargs):
-        # 獲取最後一個token
-        new_token = input_ids[:, -1]
-        
-        # 解碼token（跳過特殊標記）
-        decoded_token = self.tokenizer.decode(new_token, skip_special_tokens=True)
-        
-        # 過濾token
-        filtered_token = self.filter_output(decoded_token)
-        
-        if filtered_token:
-            self.current_sentence += filtered_token
-            print(filtered_token, end="", flush=True)  # 即時輸出
-            
-            # 調用回調函數
-            self.callback(filtered_token)
-            
-            # 當遇到標點符號時，清空當前句子
-            if filtered_token in [".", "!", "?", ",", ":", ";", "\n"] and len(self.current_sentence) >= self.min_sentence_length:
-                self.current_sentence = ""
-        
-        # 如果遇到EOS token，停止生成
-        if new_token[0].item() == self.eos_token_id:
-            return True
-        
-        # 如果達到最大token數，停止生成
-        self.token_count += 1
-        return self.token_count >= self.max_new_tokens
+from typing import Optional, Union, List, Dict, Any, Callable, Generator
+from transformers import BitsAndBytesConfig
 
 class LLMManager:
     """
@@ -75,11 +16,12 @@ class LLMManager:
         self,
         model_dir: Optional[Union[str, Path]] = None,
         model_name: str = "google/gemma-3-1b-it",  # 模型名稱
+        model_type: str = "1b",  # 模型類型: "1b" 或 "4b"
         device: str = "auto",  # "auto", "cpu", "cuda"
         use_8bit: bool = True,  # 是否使用8位量化
         use_4bit: bool = False,  # 是否使用4位量化
         stream_mode: bool = False,  # 是否啟用串流模式
-        temperature: float = 0.7,  # 生成溫度
+        temperature: float = 0.8,  # 生成溫度
         top_k: int = 50,  # Top-K採樣
         top_p: float = 0.9,  # Top-P採樣
         repetition_penalty: float = 1.0,  # 重複懲罰
@@ -107,8 +49,8 @@ class LLMManager:
         """
         # 初始化模型路徑
         if model_dir is None:
-            base_dir = Path(__file__).resolve().parent.parent.parent
-            self.model_dir = base_dir / "src" / "models" / "llm_models"
+            base_dir = Path(__file__).resolve().parent
+            self.model_dir = base_dir / "llm_models"
         else:
             self.model_dir = Path(model_dir)
         
@@ -125,6 +67,7 @@ class LLMManager:
             self.device = device
         
         # 保存參數
+        self.model_type = model_type.lower()
         self.use_8bit = use_8bit
         self.use_4bit = use_4bit
         self.stream_mode = stream_mode
@@ -146,57 +89,130 @@ class LLMManager:
             self.llm_thread = threading.Thread(target=self._llm_worker, daemon=True)
             self.llm_thread.start()
     
+    # def _load_model(self) -> None:
+    #     """加載模型和分詞器"""
+    #     try:
+    #         print(f"加載LLM模型: {self.model_path}, 設備: {self.device}")
+            
+    #         # 加載分詞器
+    #         self.tokenizer = AutoTokenizer.from_pretrained(
+    #             self.model_path,
+    #             local_files_only=self.local_files_only
+    #         )
+            
+    #         # 準備量化配置
+    #         quantization_config = None
+    #         if self.use_8bit:
+    #             quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+    #         elif self.use_4bit:
+    #             quantization_config = BitsAndBytesConfig(
+    #                 load_in_4bit=True,
+    #                 bnb_4bit_quant_type="nf4",
+    #                 bnb_4bit_compute_dtype=torch.bfloat16
+    #             )
+            
+    #         # 加載模型
+    #         model_kwargs = {}
+    #         if quantization_config:
+    #             model_kwargs["quantization_config"] = quantization_config
+            
+    #         if self.device != "cpu" and torch.cuda.is_available():
+    #             model_kwargs["device_map"] = "auto"
+    #             torch_dtype = torch.bfloat16
+    #         else:
+    #             torch_dtype = torch.float32
+            
+    #         # 添加torch_dtype參數
+    #         model_kwargs["torch_dtype"] = torch_dtype
+            
+    #         # 加載模型
+    #         self.model = Gemma3ForCausalLM.from_pretrained(
+    #             self.model_path,
+    #             local_files_only=self.local_files_only,
+    #             **model_kwargs
+    #         ).eval()
+            
+    #         print("LLM模型加載成功")
+            
+    #     except Exception as e:
+    #         import traceback
+    #         print(f"LLM模型加載失敗: {e}")
+    #         traceback.print_exc()
+    #         raise RuntimeError(f"LLM模型加載失敗: {str(e)}")
+
     def _load_model(self) -> None:
-        """加載模型和分詞器"""
+        """根據模型類型加載相應的模型和分詞器/處理器"""
         try:
-            print(f"加載LLM模型: {self.model_path}, 設備: {self.device}")
+            print(f"加載LLM模型: {self.model_path}, 類型: {self.model_type}, 設備: {self.device}")
             
-            # 加載分詞器
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_path,
-                local_files_only=self.local_files_only
-            )
-            
-            # 準備量化配置
-            quantization_config = None
-            if self.use_8bit:
-                quantization_config = BitsAndBytesConfig(load_in_8bit=True)
-            elif self.use_4bit:
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True,
-                    bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16
+            # 根據模型類型加載不同的組件
+            if self.model_type == "4b":
+                # 4B模型使用AutoProcessor和Gemma3ForConditionalGeneration
+                from transformers import AutoProcessor, Gemma3ForConditionalGeneration
+                
+                self.processor = AutoProcessor.from_pretrained(
+                    self.model_path,
+                    local_files_only=self.local_files_only
                 )
-            
-            # 加載模型
-            model_kwargs = {}
-            if quantization_config:
-                model_kwargs["quantization_config"] = quantization_config
-            
-            if self.device != "cpu" and torch.cuda.is_available():
-                model_kwargs["device_map"] = "auto"
-                torch_dtype = torch.bfloat16
+                self.tokenizer = self.processor  # 為了兼容性，保留tokenizer引用
+                
+                # 準備模型參數
+                model_kwargs = {}
+                if self.device != "cpu" and torch.cuda.is_available():
+                    model_kwargs["device_map"] = "auto"
+                    model_kwargs["torch_dtype"] = torch.bfloat16
+                
+                self.model = Gemma3ForConditionalGeneration.from_pretrained(
+                    self.model_path,
+                    local_files_only=self.local_files_only,
+                    **model_kwargs
+                ).eval()
             else:
-                torch_dtype = torch.float32
+                # 1B模型使用AutoTokenizer和Gemma3ForCausalLM
+                from transformers import AutoTokenizer, Gemma3ForCausalLM
+                
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_path,
+                    local_files_only=self.local_files_only
+                )
+                self.processor = self.tokenizer  # 為了兼容性，保留processor引用
+                
+                # 準備量化配置
+                quantization_config = None
+                if self.use_8bit:
+                    quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+                elif self.use_4bit:
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_4bit=True,
+                        bnb_4bit_quant_type="nf4",
+                        bnb_4bit_compute_dtype=torch.bfloat16
+                    )
+                
+                # 準備模型參數
+                model_kwargs = {}
+                if quantization_config:
+                    model_kwargs["quantization_config"] = quantization_config
+                
+                if self.device != "cpu" and torch.cuda.is_available():
+                    model_kwargs["device_map"] = "auto"
+                    model_kwargs["torch_dtype"] = torch.bfloat16
+                else:
+                    model_kwargs["torch_dtype"] = torch.float32
+                
+                self.model = Gemma3ForCausalLM.from_pretrained(
+                    self.model_path,
+                    local_files_only=self.local_files_only,
+                    **model_kwargs
+                ).eval()
             
-            # 添加torch_dtype參數
-            model_kwargs["torch_dtype"] = torch_dtype
-            
-            # 加載模型
-            self.model = Gemma3ForCausalLM.from_pretrained(
-                self.model_path,
-                local_files_only=self.local_files_only,
-                **model_kwargs
-            ).eval()
-            
-            print("LLM模型加載成功")
-            
+            print(f"{self.model_type.upper()} LLM模型加載成功")
+
         except Exception as e:
             import traceback
             print(f"LLM模型加載失敗: {e}")
             traceback.print_exc()
             raise RuntimeError(f"LLM模型加載失敗: {str(e)}")
-    
+
     def _llm_worker(self) -> None:
         """LLM工作線程，處理隊列中的請求"""
         while self.is_running:
@@ -291,6 +307,22 @@ class LLMManager:
         else:
             raise ValueError(f"不支持的消息格式: {type(messages)}")
     
+    def _filter_text(self, text: str) -> str:
+        """過濾文本，移除emoji和特殊格式"""
+        # 過濾emoji
+        emoji_pattern = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F]+", flags=re.UNICODE)
+        text = emoji_pattern.sub("", text)
+        
+        # 過濾markdown格式
+        markdown_pattern = re.compile(r"^\s*\d+\.\s+\*\*.*\*\*")
+        text = markdown_pattern.sub("", text)
+        
+        # 過濾Markdown強調標記（保留文本內容）
+        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # 移除粗體標記 **text**
+        text = re.sub(r'\*(.*?)\*', r'\1', text)      # 移除斜體標記 *text*
+        
+        return text
+    
     def generate(
         self,
         messages: Union[str, List[Dict[str, Any]]],
@@ -355,6 +387,9 @@ class LLMManager:
                 generated_tokens = outputs[0][input_length:]
                 generated_text = self.tokenizer.decode(generated_tokens, skip_special_tokens=True)
                 
+                # 清理輸出
+                generated_text = self._clean_output(generated_text)
+                
                 return generated_text
                 
         except Exception as e:
@@ -363,29 +398,51 @@ class LLMManager:
             traceback.print_exc()
             return f"生成過程中發生錯誤: {str(e)}"
     
-    def generate_stream(
+    def _clean_output(self, text: str) -> str:
+        """清理輸出，移除特殊標記和URL"""
+        # 移除特殊標記
+        text = re.sub(r'<[^>]*>', '', text)
+        
+        # 移除URL
+        text = re.sub(r'https?://\S+', '', text)
+        
+        # 移除星號標記（保留內容）
+        text = re.sub(r'\*\*?(.*?)\*\*?', r'\1', text)
+        
+        # 移除其他可能的特殊標記
+        text = re.sub(r'\[\d+\]', '', text)  # 引用標記
+        
+        # 清理多餘空格
+        text = re.sub(r'\s+', ' ', text).strip()
+        
+        return text
+    
+    def generate_stream2(
         self,
         messages: Union[str, List[Dict[str, Any]]],
-        callback: Callable[[str], None],
+        callback: Optional[Callable[[str], None]] = None,
         temperature: Optional[float] = None,
         top_k: Optional[int] = None,
         top_p: Optional[float] = None,
         repetition_penalty: Optional[float] = None,
         max_new_tokens: Optional[int] = None,
         min_sentence_length: int = 8,
-    ) -> None:
+    ) -> Generator[str, None, None]:
         """
-        流式生成文本響應 - 真正的逐token生成並通過回調返回
+        流式生成文本響應 - 真正的逐token生成並返回生成器
         
         Args:
             messages: 消息列表或單個字符串消息
-            callback: 回調函數，接收生成的文本片段
+            callback: 可選的回調函數，接收生成的文本片段
             temperature: 生成溫度
             top_k: Top-K採樣參數
             top_p: Top-P採樣參數
             repetition_penalty: 重複懲罰參數
             max_new_tokens: 最大生成長度
             min_sentence_length: 最小的句子長度
+            
+        Yields:
+            生成的文本片段，可用於即時TTS處理
         """
         # 使用默認值
         temperature = temperature if temperature is not None else self.temperature
@@ -407,36 +464,297 @@ class LLMManager:
                 return_tensors="pt"
             ).to(self.model.device)
             
-            # 創建自定義停止條件，實現逐token流式輸出
-            streaming_criteria = StreamingStoppingCriteria(
-                tokenizer=self.tokenizer,
-                callback=callback,
-                eos_token_id=self.tokenizer.eos_token_id,
-                max_new_tokens=max_new_tokens,
-                min_sentence_length=min_sentence_length
-            )
+            # 創建句子緩衝區和累積文本
+            sentence_buffer = ""
+            accumulated_text = ""
+            should_stop = False  # 標記是否應該停止生成
+            empty_token_count = 0  # 跟踪連續空token數量
             
-            # 使用自定義停止條件進行生成
+            # 定義停止序列
+            stop_sequences = ["<end_of_turn>", "http://", "https://"]
+            
+            # 使用inference_mode生成
             with torch.inference_mode():
-                self.model.generate(
-                    **inputs,
-                    max_new_tokens=max_new_tokens,
-                    do_sample=temperature > 0,
-                    temperature=temperature,
-                    top_k=top_k,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    use_cache=True,
-                    pad_token_id=self.tokenizer.eos_token_id,
-                    stopping_criteria=StoppingCriteriaList([streaming_criteria])
-                )
+                # 為了獲取每個token，我們使用更低層次的接口
+                input_ids = inputs["input_ids"]
+                
+                # 開始生成
+                for _ in range(max_new_tokens):
+                    if should_stop:
+                        break
+                        
+                    # 獲取logits
+                    outputs = self.model(input_ids)
+                    next_token_logits = outputs.logits[:, -1, :]
+                    
+                    # 應用溫度和採樣
+                    if temperature > 0:
+                        # 添加溫度縮放
+                        next_token_logits = next_token_logits / temperature
+                        
+                        # 應用Top-K過濾
+                        if top_k > 0:
+                            indices_to_remove = torch.topk(next_token_logits, k=top_k)[0][:, -1, None]
+                            next_token_logits[next_token_logits < indices_to_remove] = float('-inf')
+                        
+                        # 應用Top-P (nucleus) 過濾
+                        if 0 < top_p < 1.0:
+                            sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+                            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                            
+                            # 移除機率累積超過top_p的token
+                            sorted_indices_to_remove = cumulative_probs > top_p
+                            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                            sorted_indices_to_remove[..., 0] = 0
+                            
+                            indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                            next_token_logits[0, indices_to_remove] = float('-inf')
+                        
+                        # 應用重複懲罰
+                        if repetition_penalty > 1.0:
+                            for i in range(input_ids.shape[1]):
+                                next_token_logits[0, input_ids[0, i]] /= repetition_penalty
+                        
+                        # 採樣下一個token
+                        probs = torch.softmax(next_token_logits, dim=-1)
+                        next_token = torch.multinomial(probs, num_samples=1).item()
+                    else:
+                        # 貪婪解碼
+                        next_token = torch.argmax(next_token_logits, dim=-1).item()
+                    
+                    # 如果是EOS token，結束生成
+                    if next_token == self.tokenizer.eos_token_id:
+                        break
+                    
+                    # 添加到輸入序列
+                    input_ids = torch.cat([input_ids, torch.tensor([[next_token]], device=self.device)], dim=1)
+                    
+                    # 解碼token
+                    token_text = self.tokenizer.decode([next_token])
+                    
+                    # 過濾token
+                    filtered_token = self._filter_text(token_text)
+                    
+                    # 跳過空token
+                    if not filtered_token:
+                        continue
+                    
+                    # 添加到累積文本以檢查停止序列
+                    accumulated_text += filtered_token
+                    
+                    # 直接檢查是否包含停止序列
+                    for stop_seq in stop_sequences:
+                        if stop_seq in accumulated_text:
+                            print(f"\n[檢測到停止序列: '{stop_seq}']")
+                            # 獲取停止序列之前的文本
+                            stop_pos = accumulated_text.find(stop_seq)
+                            final_token = accumulated_text[:stop_pos].replace(sentence_buffer, '')
+                            
+                            # 如果有新內容，添加到緩衝區
+                            if final_token:
+                                sentence_buffer += final_token
+                                
+                                # 如果回調函數存在，調用它
+                                if callback:
+                                    callback(final_token)
+                            
+                            should_stop = True
+                            break
+                    
+                    # 如果應該停止，跳出循環
+                    if should_stop:
+                        break
+                    
+                    # 將token添加到sentence_buffer
+                    sentence_buffer += filtered_token
+                    
+                    # 列印當前token（用於調試）
+                    #print(filtered_token, end="", flush=True)
+                    
+                    # 如果回調函數存在，調用它
+                    if callback:
+                        callback(filtered_token)
+                    
+                    # 檢查是否有完整句子
+                    if any(mark in filtered_token for mark in [".", "!", "?"]) and len(sentence_buffer) >= min_sentence_length:
+                        yield sentence_buffer
+                        sentence_buffer = ""
+                    elif any(mark in filtered_token for mark in [",", ";", ":"]) and len(sentence_buffer) >= min_sentence_length:
+                        yield sentence_buffer
+                        sentence_buffer = ""
+                
+                # 處理最後的緩衝區
+                if sentence_buffer and not should_stop:
+                    yield sentence_buffer
                 
         except Exception as e:
             import traceback
             print(f"流式生成錯誤: {e}")
             traceback.print_exc()
-            callback(f"生成過程中發生錯誤: {str(e)}")
+            if callback:
+                callback(f"生成過程中發生錯誤: {str(e)}")
+            yield f"生成過程中發生錯誤: {str(e)}"
     
+    def generate_stream(
+        self,
+        messages: Union[str, List[Dict[str, Any]]],
+        callback: Optional[Callable[[str], None]] = None,
+        temperature: Optional[float] = None,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
+        max_new_tokens: Optional[int] = None,
+        min_sentence_length: int = 8,
+    ) -> Generator[str, None, None]:
+        """流式生成文本響應 - 支持1B和4B模型"""
+        # 使用默認值
+        temperature = temperature if temperature is not None else self.temperature
+        top_k = top_k if top_k is not None else self.top_k
+        top_p = top_p if top_p is not None else self.top_p
+        repetition_penalty = repetition_penalty if repetition_penalty is not None else self.repetition_penalty
+        max_new_tokens = max_new_tokens if max_new_tokens is not None else self.max_new_tokens
+        
+        # 準備消息
+        formatted_messages = self.prepare_messages(messages)
+        
+        try:
+            # 根據模型類型使用不同的處理方法
+            if self.model_type == "4b":
+                # 4B模型處理
+                inputs = self.processor.apply_chat_template(
+                    formatted_messages,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt"
+                ).to(self.model.device, dtype=torch.bfloat16)
+            else:
+                # 1B模型處理
+                inputs = self.tokenizer.apply_chat_template(
+                    formatted_messages,
+                    add_generation_prompt=True,
+                    tokenize=True,
+                    return_dict=True,
+                    return_tensors="pt"
+                ).to(self.model.device)
+            
+            # 創建句子緩衝區和累積文本
+            empty_token_count = 0
+
+            should_stop = False  # 標記是否應該停止生成
+            
+            # 定義停止序列
+            #stop_sequences = ["<end_of_turn>", ""]
+            
+            # 使用inference_mode生成
+            with torch.inference_mode():
+                # 為了獲取每個token，我們使用更低層次的接口
+                input_ids = inputs["input_ids"]
+                
+                # 開始生成
+                for _ in range(max_new_tokens):
+                    if should_stop:
+                        break
+                        
+                    # 獲取logits
+                    outputs = self.model(input_ids)
+                    next_token_logits = outputs.logits[:, -1, :]
+                    
+                    # 應用採樣參數選擇下一個token
+                    next_token = self._sample_token(next_token_logits, temperature, top_k, top_p, repetition_penalty, input_ids)
+                    
+                    # 如果是EOS token，結束生成
+                    # if next_token == self.tokenizer.eos_token_id:
+                    #     break
+                    
+                    # 添加到輸入序列
+                    input_ids = torch.cat([input_ids, torch.tensor([[next_token]], device=self.device)], dim=1)
+                    
+                    # 根據模型類型解碼token
+                    if self.model_type == "4b":
+                        token_text = self.processor.decode([next_token], skip_special_tokens=True)
+                    else:
+                        token_text = self.tokenizer.decode([next_token], skip_special_tokens=True)
+                    
+                    # 過濾token
+                    filtered_token = token_text
+                    if filtered_token: 
+                        empty_token_count = 0
+                    else:
+                        empty_token_count += 1
+                        # 如果連續空token數量超過限制，提前終止
+                        if empty_token_count >= 5:
+                            print(f"\n[提前終止] 檢測到連續{empty_token_count}個空token")
+                            should_stop = True
+                            break
+                    
+                    # 跳過空token
+                    if not filtered_token:
+                        continue
+                
+                    if callback:
+                        callback(filtered_token)
+                    yield filtered_token
+                    
+                    # # 檢查是否形成完整句子
+                    # if self._is_sentence_complete(filtered_token, sentence_buffer, min_sentence_length):
+                    #     yield sentence_buffer
+                    #     sentence_buffer = ""
+                
+                    # # 處理剩餘的緩衝區
+                    # if sentence_buffer and not should_stop:
+                    #     yield sentence_buffer
+                    
+        except Exception as e:
+            import traceback
+            print(f"流式生成錯誤: {e}")
+            traceback.print_exc()
+            if callback:
+                callback(f"生成過程中發生錯誤: {str(e)}")
+            yield f"生成過程中發生錯誤: {str(e)}"
+            
+    def _sample_token(self, logits, temperature, top_k, top_p, repetition_penalty, input_ids):
+        """令牌採樣邏輯，抽取為單獨方法以提高可讀性"""
+        if temperature > 0:
+            # 添加溫度縮放
+            logits = logits / temperature
+            
+            # 應用Top-K過濾
+            if top_k > 0:
+                indices_to_remove = torch.topk(logits, k=top_k)[0][:, -1, None]
+                logits[logits < indices_to_remove] = float('-inf')
+            
+            # 應用Top-P過濾
+            if 0 < top_p < 1.0:
+                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                
+                sorted_indices_to_remove = cumulative_probs > top_p
+                sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                sorted_indices_to_remove[..., 0] = 0
+                
+                indices_to_remove = sorted_indices[sorted_indices_to_remove]
+                logits[0, indices_to_remove] = float('-inf')
+            
+            # 應用重複懲罰
+            if repetition_penalty > 1.0:
+                for i in range(input_ids.shape[1]):
+                    logits[0, input_ids[0, i]] /= repetition_penalty
+            
+            # 採樣下一個token
+            probs = torch.softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1).item()
+        else:   
+            # 貪婪解碼
+            next_token = torch.argmax(logits, dim=-1).item()
+        
+        return next_token
+
+    # def _is_sentence_complete(self, token, buffer, min_length):
+    #     """檢查是否完成一個句子"""
+    #     return (any(mark in token for mark in [".", "!", "?"]) and len(buffer) >= min_length) or \
+    #         (any(mark in token for mark in [",", ";", ":"]) and len(buffer) >= min_length)
+
     def stream_request(
         self, 
         messages: Union[str, List[Dict[str, Any]]],
@@ -483,14 +801,19 @@ class LLMManager:
         self.clear_memory()
 
 # 默認的英語教師系統提示
-DEFAULT_ENGLISH_TEACHER_PROMPT = """You are a friendly and casual English teacher. Respond naturally and conversationally, like a native speaker talking to a student. Keep responses simple, natural, and easy to understand."""
+DEFAULT_ENGLISH_TEACHER_PROMPT = """You are a friendly and casual English teacher. Respond naturally and conversationally, 
+like a native speaker talking to a student. Keep responses simple, clear, and concise (around 2-3 sentences per answer).
+Avoid using bullet points or numbered lists. Make your answers brief but helpful."""
 
 # 測試代碼
 if __name__ == "__main__":
     # 基本用法
     llm = LLMManager(
         system_prompt=DEFAULT_ENGLISH_TEACHER_PROMPT,
-        local_files_only=True  # 測試時使用本地文件
+        local_files_only=True,  # 測試時使用本地文件
+        temperature=0.4,        # 降低溫度提高穩定性
+        top_k=30,               # 限制詞彙選擇範圍
+        top_p=0.7               # 適中的採樣概率
     )
     
     # 測試簡單對話
@@ -500,7 +823,7 @@ if __name__ == "__main__":
     
     # 測試流式生成
     print("\n=== 測試2: 流式生成 ===")
-    print("問題: Tell me the difference between 'affect' and 'effect'?")
+    print("問題: How can I improve my English reading skills?")
     print("回答: ", end="", flush=True)
     
     # 收集生成的文本
@@ -510,6 +833,8 @@ if __name__ == "__main__":
         collected_text.append(text)
     
     # 使用流式生成
-    llm.generate_stream("Tell me the difference between 'affect' and 'effect'?", collect_text)
+    for text_chunk in llm.generate_stream("How can I improve my English reading skills?", collect_text):
+        # 直接傳遞給TTS處理（實際應用中）
+        pass
     
     print("\n\n完整回應: " + "".join(collected_text))
