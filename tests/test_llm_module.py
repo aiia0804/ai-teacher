@@ -4,17 +4,19 @@ import os
 from pathlib import Path
 
 # 添加項目根目錄到Python路徑
-sys.path.append(str(Path(__file__).resolve().parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 # 導入流式LLM模組
 from src.models.llm import LLMManager, DEFAULT_ENGLISH_TEACHER_PROMPT
+from src.models.tts import TTSManager
+
 
 def find_model_path():
     """搜索可能的模型路徑"""
     print("\n===== 尋找模型路徑 =====")
     
     # 從不同位置尋找模型
-    base_dir = Path(__file__).resolve().parent
+    base_dir = Path(__file__).resolve().parent.parent
     llm_models_dir = base_dir / "src" / "models" / "llm_models"
     
     potential_paths = [
@@ -30,24 +32,28 @@ def find_model_path():
     print("找不到本地模型，將使用模型名稱")
     return "google/gemma-3-1b-it"
 
-def test_token_streaming(model_path):
+def test_token_streaming():
     """測試真正的逐token流式生成"""
     print("\n===== 測試真正的逐token流式生成 =====")
     
     # 使用本地模型優先
-    use_local = isinstance(model_path, Path)
+    #use_local = isinstance(model_path, Path)
     
     # 初始化LLM管理器
     print("初始化LLM管理器...")
     llm = LLMManager(
-        model_name=str(model_path) if use_local else model_path,
+        model_type="4b",
+        model_name="gemma-3-4b-it",
         system_prompt=DEFAULT_ENGLISH_TEACHER_PROMPT,
-        local_files_only=use_local,
-        max_new_tokens=100
+        local_files_only=True,
+        max_new_tokens=150
     )
+    kwargs = {"voice_file": 'af_heart.pt', "speed": 1.0}
+    tts = TTSManager(**kwargs)
+
     
     # 測試問題
-    test_question = "Give me 3 tips for improving my English pronunciation."
+    test_question = "要怎麼才能跟不熟的人聊天阿?"
     
     print(f"測試問題: '{test_question}'")
     print("回答: ", end="", flush=True)
@@ -61,9 +67,16 @@ def test_token_streaming(model_path):
     
     # 開始流式生成
     start_time = time.time()
-    llm.generate_stream(test_question, collect_token)
+    #llm.generate_stream(test_question, collect_token)
+    for text_chunk in llm.generate_stream(test_question, collect_token):
+        #audio = tts.generate_audio(text_chunk, play=True)
+        tts.add_text(text_chunk)
+        #print(text_chunk, end="", flush=True)
+        #print("\n")    
+        # 這裡可以直接調用TTS處理
+        #tts.process_text(text_chunk) 
     end_time = time.time()
-    
+    tts.wait_until_done()
     print("\n")  # 確保下一行輸出在新行
     print(f"生成完成，耗時: {end_time - start_time:.2f} 秒")
     print(f"收集的token數量: {len(collected_text)}")
@@ -158,7 +171,6 @@ def test_multiple_questions(model_path):
         # 使用流式生成
         llm.generate_stream(question, token_callback)
         
-    # 清理資源
     llm.clear_memory()
     del llm
 
@@ -168,13 +180,13 @@ def main():
     
     try:
         # 尋找模型路徑
-        model_path = find_model_path()
+        #model_path = find_model_path()
         
         # 測試逐token流式生成
-        #test_token_streaming(model_path)
+        test_token_streaming()
         
         # 測試串流模式結合真正的流式生成
-        test_stream_mode_with_true_streaming(model_path)
+        #test_stream_mode_with_true_streaming(model_path)
         
         # 測試多個問題
         #test_multiple_questions(model_path)
