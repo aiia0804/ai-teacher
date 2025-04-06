@@ -13,12 +13,17 @@ import sys
 import json
 from pathlib import Path
 import time
-
+import soundfile as sf
+import queue
+from starlette.responses import Response
 # 配置日誌
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[logging.StreamHandler(sys.stdout)]
+    handlers=[
+        logging.FileHandler("api_server.log"),
+        logging.StreamHandler()
+    ]
 )
 logger = logging.getLogger("api_server")
 
@@ -62,10 +67,14 @@ class PronunciationRequest(BaseModel):
     text: str
 
 # ------------ 模型初始化 ------------ #
-# 這些變數將在啟動服務時初始化
+# 全局變量
+# 模型管理器
 stt_manager = None
 llm_manager = None
 tts_manager = None
+
+# 創建持久化音頻緩衝區，用於存儲生成的音頻數據
+persistent_audio_buffer = queue.Queue(maxsize=20)  # 最多存儲20個音頻片段
 
 # 對話歷史記錄
 conversation_history = {}
@@ -81,6 +90,95 @@ Avoid using bullet points or numbered lists. Make your answers brief but helpful
 }
 
 # ------------ API路由 ------------ #
+
+@app.get('/api/tts-stream')
+async def tts_stream():
+    """
+    TTS 流式傳輸端點
+    """
+    async def generate():
+        print("客戶端已連接到TTS流")
+        
+        # 獲取TTS管理器實例
+        global tts_manager
+        
+        # 確保 TTS 管理器已初始化
+        if tts_manager is None:
+            print("警告: TTS管理器尚未初始化")
+            yield "event: error\ndata: {\"error\": \"TTS manager not initialized\"}\n\n"
+            return
+        
+        # 發送事件流頭部
+        yield "event: connected\ndata: {\"status\": \"connected\"}\n\n"
+        
+        # 記錄已發送的音頻片段數
+        sent_audio_count = 0
+        last_audio_time = time.time()
+        
+        # 清空持久化緩衝區，確保不會播放舊的音頻
+        try:
+            while not persistent_audio_buffer.empty():
+                persistent_audio_buffer.get_nowait()
+            print("持久化音頻緩衝區已清空")
+        except Exception as e:
+            print(f"清空持久化音頻緩衝區出錯: {str(e)}")
+        
+        try:
+            # 持續從TTS管理器獲取音頻並發送
+            idle_count = 0
+            max_idle_time = 10  # 最大空閒時間（秒）
+            
+            while True:
+                try:
+                    audio_data = tts_manager.get_next_audio(timeout=0.5)
+                    
+                    if audio_data is not None and len(audio_data) > 0:
+                        # 將音頻數據轉換為字節
+                        audio_bytes = audio_data.tobytes()
+                        
+                        # 使用Base64編碼音頻數據
+                        encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
+                        
+                        # 發送音頻數據
+                        message = json.dumps({"audio": encoded_audio})
+                        yield f"event: audio\ndata: {message}\n\n"
+                        sent_audio_count += 1
+                        print(f"接收到音頻數據: {len(audio_bytes)} 字節 (總計: {sent_audio_count} 個片段)")
+                        
+                        # 重置空閒計數器
+                        idle_count = 0
+                        last_audio_time = time.time()
+                        
+                        # 在音頻片段之間添加短暫延遲，確保平滑播放
+                        await asyncio.sleep(0.05)
+                    else:
+                        # 檢查是否應該結束流
+                        current_time = time.time()
+                        elapsed_since_last_audio = current_time - last_audio_time
+                        
+                        # 如果長時間沒有音頻且文本緩衝區為空，可能已經播放完所有內容
+                        if not tts_manager.text_buffer and elapsed_since_last_audio > max_idle_time:
+                            idle_count += 1
+                            if idle_count > 20:  # 如果連續20次都沒有音頻，則結束流
+                                print(f"TTS流空閒超過 {max_idle_time} 秒且無文本，關閉連接")
+                                break
+                        
+                        # 發送空數據以保持連接
+                        yield "event: ping\ndata: {}\n\n"
+                        await asyncio.sleep(0.1)
+                except Exception as e:
+                    print(f"TTS獲取音頻出錯: {str(e)}")
+                    await asyncio.sleep(0.5)  # 出錯時等待一段時間
+        except Exception as e:
+            print(f"TTS流出錯: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            yield f"event: error\ndata: {{\"error\": \"{str(e)}\"}}\n\n"
+        finally:
+            print("服務器已關閉TTS流連接")
+            yield "event: close\ndata: {\"status\": \"closed\"}\n\n"
+    
+    return StreamingResponse(generate(), media_type="text/event-stream")
 
 @app.get("/")
 async def root():
@@ -127,6 +225,15 @@ async def chat(request: ChatRequest):
     global llm_manager, conversation_history, tts_manager
     
     try:
+        # 清空TTS緩衝區，確保不會播放舊的內容
+        tts_manager.text_buffer = ""
+        while not tts_manager.audio_queue.empty():
+            try:
+                tts_manager.audio_queue.get_nowait()
+                tts_manager.audio_queue.task_done()
+            except:
+                pass
+        
         # 獲取或創建對話歷史
         if request.conversation_id not in conversation_history:
             conversation_history[request.conversation_id] = []
@@ -193,9 +300,16 @@ async def chat(request: ChatRequest):
             # 提交到TTS進行處理（非阻塞）
             # 注意：這裡您需要確保TTS管理器能處理小片段文本
             tts_manager.add_text(text_chunk)
+            
+            # 等待一下確保有足夠時間處理文本
+            await asyncio.sleep(0.01)
         
-        # 生成完成後，等待TTS完成播放
-        tts_manager.wait_until_done()
+        # 在生成完成後強制處理緩衝區中的最後文本
+        # 但不等待播放完成，避免阻塞
+        tts_manager.force_process()
+        
+        # 等待一下確保所有音頻已經生成
+        time.sleep(0.5)
         
         # 更新對話歷史 - 確保正確的順序
         if context and context[-1]["role"] == "user":
@@ -228,19 +342,19 @@ async def text_to_speech(request: TextToSpeechRequest):
     global tts_manager
     
     try:
-        # 創建臨時文件保存音頻
+        # 直接生成音頻數據而不是保存到文件
+        logger.info(f"生成語音: {request.text[:30]}...")
+        audio_data = tts_manager.generate_audio(request.text)
+        
+        if len(audio_data) == 0:
+            raise Exception("生成語音失敗")
+        
+        # 創建臨時文件保存音頻（僅用於流式傳輸）
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         temp_file.close()
         
-        # 生成語音
-        logger.info(f"生成語音: {request.text[:30]}...")
-        success = tts_manager.save_audio(
-            request.text,
-            temp_file.name
-        )
-        
-        if not success:
-            raise Exception("生成語音失敗")
+        # 保存音頻數據到臨時文件
+        sf.write(temp_file.name, audio_data, tts_manager.sample_rate)
         
         # 返回音頻文件
         def iterfile():
@@ -325,6 +439,7 @@ async def stream_llm(request: ChatRequest):
                 logger.info(f"生成流式對話回應，情境: {scenario}")
                 for text_chunk in llm_manager.generate_stream(messages):
                     # 發送文本塊
+                    #print(f"[API Server]生成文本塊: {text_chunk}")
                     full_response += text_chunk
                     yield f"data: {json.dumps({'chunk': text_chunk, 'done': False})}\n\n"
                     await asyncio.sleep(0.01)  # 避免過快發送
@@ -446,7 +561,9 @@ async def startup_event():
         tts_manager = TTSManager(
             lang_code='a',  # 美式英語
             speed=1.0,
-            voice_file= 'af_heart.pt'
+            voice_file='af_heart.pt',
+            play_locally=False,  # 不在後端播放音頻
+            min_buffer_size=50  # 降低緩衝區大小以更快處理文本
         )
         
         logger.info("所有模型初始化完成")

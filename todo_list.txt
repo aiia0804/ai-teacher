@@ -1,7 +1,9 @@
-1. Change stt from backend to frontend
-2. Change the record way. mic_recorder敫動太慢. 試看看換browser的方法
+1. Change TTS from backend to frontend (NOT YET)
+    1-1 Need to modify the client side audio play issues
+    1-2 Need to improvie the TTS audio setnence issues.
+2. STT 不能利用SRC裡的模型
 3. WHSIPER 有時使的轉換要10幾秒的問題
 4. CPU 對應的問題?
 5. 加入情境選擇
 6. 加入VOICE 選擇
-期限 2025-04-04
+期限 2025-04-10

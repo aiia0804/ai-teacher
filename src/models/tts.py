@@ -24,7 +24,8 @@ class TTSManager:
         sample_rate: int = 24000,
         use_cuda: bool = True,
         min_buffer_size: int = 50,  # 最小緩衝區大小（字符數）
-        punctuation_pattern: str = r'[.!?]'  # 標點符號模式
+        punctuation_pattern: str = r'[.!?,;:\n]',  # 標點符號模式
+        play_locally: bool = False  # 是否在本地播放音頻
         #TODO: add punctuation_pattern to handle other langue.
     ):
         """
@@ -59,6 +60,7 @@ class TTSManager:
         self.speed = speed
         self.sample_rate = sample_rate
         self.use_cuda = use_cuda and torch.cuda.is_available()
+        self.play_locally = play_locally
         
         # 設置緩衝區參數
         self.min_buffer_size = min_buffer_size
@@ -151,193 +153,351 @@ class TTSManager:
         """
         生成線程：將緩衝區中的文本轉換為語音，並將語音放入播放隊列
         """
+        # 對全局持久化音頻緩衝區的引用
+        import sys
+        import importlib
+        api_server_module = importlib.import_module("api_server")
+        persistent_audio_buffer = getattr(api_server_module, "persistent_audio_buffer", None)
+        
         while self.is_running:
-            # 檢查是否有足夠的文本可以處理
-            should_process, text_to_process = self._should_process_buffer()
-            if should_process and text_to_process:
-                try:
-                    self.text_buffer = self.text_buffer[len(text_to_process):]       
-                    print(f"⏳ 生成語音: '{text_to_process}'")
+            try:
+                # 檢查緩衝區是否應該處理
+                text_to_process = self._should_process_buffer()
+                
+                if text_to_process:
+                    print(f"🔄 處理緩衝區文本: '{text_to_process[:30]}...'")
                     
-                    # 生成語音
-                    start_time = time.time()
+                    # 生成音頻
                     audio_data = self._generate_audio_internal(text_to_process)
                     
                     if len(audio_data) > 0:
-                        # 將生成的音頻放入播放隊列
-                        self.audio_queue.put(audio_data)
+                        # 將音頻放入播放隊列
+                        self.audio_queue.put(audio_data.copy())  # 使用copy避免引用問題
                         
-                        generation_time = time.time() - start_time
-                        print(f"✅ 語音生成完成，耗時: {generation_time:.2f}秒，文本長度: {len(text_to_process)}字符")
+                        # 同時將音頻放入持久化緩衝區
+                        if persistent_audio_buffer is not None:
+                            try:
+                                # 如果緩衝區已滿，先移除舊的數據
+                                if persistent_audio_buffer.full():
+                                    try:
+                                        persistent_audio_buffer.get_nowait()
+                                    except:
+                                        pass
+                                persistent_audio_buffer.put(audio_data.copy())
+                                print(f"✅ 音頻已添加到持久化緩衝區，緩衝區大小: {persistent_audio_buffer.qsize()}")
+                            except Exception as e:
+                                print(f"❌ 添加到持久化緩衝區出錯: {str(e)}")
+                        
+                        print(f"✅ 音頻生成完成，長度: {len(audio_data)} 樣本，隊列大小: {self.audio_queue.qsize()}")
                     else:
-                        print("❌ 未能生成有效的音頻")
-                        
-                except Exception as e:
-                    print(f"❌ 語音生成錯誤: {str(e)}")
-                    import traceback
-                    traceback.print_exc()
-            
-            # 短暫休眠以減少CPU使用
-            time.sleep(0.05)
+                        print("⚠️ 生成的音頻為空")
+                
+                # 短暫休眠以減少CPU使用率
+                time.sleep(0.1)
+                
+            except Exception as e:
+                print(f"❌ 音頻生成錯誤: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
+                time.sleep(0.5)  # 出錯時稍微延長休眠時間
     
     def _player_worker(self):
         """
-        播放線程：從播放隊列中獲取音頻並播放
+        播放線程：從播放隊列中取出音頻並播放
         """
+        if not self.play_locally:
+            print("本地播放已禁用，播放線程將退出")
+            return
+            
+        import sounddevice as sd
+        
+        # 設置播放參數
+        sd.default.samplerate = self.sample_rate
+        sd.default.channels = 1
+        
+        print(f"音頻播放線程已啟動，采樣率: {self.sample_rate} Hz")
+        
+        # 設置等待結束的計時器
+        last_audio_time = time.time()
+        wait_timeout = 3.0  # 等待結束的時間（秒）
+        
         while self.is_running:
             try:
-                # 從隊列獲取音頻數據（設置超時以便可以檢查是否應該退出）
-                audio_data = self.audio_queue.get(timeout=0.5)
+                # 從隊列中取出音頻數據
+                audio_data = self.get_next_audio(timeout=0.5)  # 設置較短的逾時時間
                 
-                # 播放音頻
-                print("🔊 開始播放音頻...")
-                sd.play(audio_data, samplerate=self.sample_rate)
-                sd.wait()  # 等待播放完成
-                print("✅ 音頻播放完成")
-                
-                # 標記任務完成
-                self.audio_queue.task_done()
-                
-            except queue.Empty:
-                # 隊列為空，繼續等待
-                continue
+                if audio_data is not None and len(audio_data) > 0:
+                    # 更新最後一次收到音頻的時間
+                    last_audio_time = time.time()
+                    
+                    # 播放音頻
+                    print(f"播放音頻: {len(audio_data)} 樣本, 采樣率: {self.sample_rate}")
+                    sd.play(audio_data, self.sample_rate)
+                    sd.wait()  # 等待播放完成
+                    print("音頻播放完成")
+                    
+                    # 播放完成後等待一小段時間，確保句子之間有自然的停頓
+                    time.sleep(0.1)
+                else:
+                    # 檢查是否應該結束播放
+                    current_time = time.time()
+                    elapsed_since_last_audio = current_time - last_audio_time
+                    
+                    # 如果文本緩衝區為空且已經超過等待逾時時間，則可能已經播放完所有音頻
+                    if not self.text_buffer and elapsed_since_last_audio > wait_timeout:
+                        # 檢查緩衝區是否為空，但不結束播放線程
+                        print(f"等待音頻逾時 ({elapsed_since_last_audio:.1f} 秒)，緩衝區為空，等待新的文本")
+                        time.sleep(0.5)  # 等待更長時間
+                    else:
+                        # 如果沒有音頻數據，等待一段時間
+                        time.sleep(0.1)
+            
             except Exception as e:
-                print(f"❌ 音頻播放錯誤: {str(e)}")
-                
-                # 嘗試清除任何正在播放的音頻
-                try:
-                    sd.stop()
-                except:
-                    pass
-                
-                # 標記任務完成以避免死鎖
-                if 'audio_data' in locals():
-                    self.audio_queue.task_done()
+                print(f"播放音頻時出錯: {str(e)}")
+                time.sleep(0.5)  # 出錯時稍微延長休眠時間
+        
+        print("音頻播放線程結束")
     
     def _should_process_buffer(self):
         """
         判斷是否應該處理緩衝區中的文本，並只返回完整句子
+        同時從緩衝區中移除已處理的文本
         """
-        if not self.text_buffer or len(self.text_buffer) < self.min_buffer_size:
-            return False, ""
-        
-        # 查找最後一個句子結束標點的位置
-        matches = list(self.punctuation_pattern.finditer(self.text_buffer))
-        if not matches:
-            return False, ""
+        if not self.text_buffer:
+            return ""
             
-        # 獲取最後一個標點符號的位置
-        last_match = matches[-1]
-        end_pos = last_match.end()
+        # 定義句子結束標點
+        sentence_end_marks = ['.', '!', '?']
         
-        # 只處理到最後一個標點符號的文本
-        return True, self.text_buffer[:end_pos]
+        # 如果緩衝區小於最小處理大小且沒有句子結束標點，則等待更多文本
+        if len(self.text_buffer) < self.min_buffer_size and not any(p in self.text_buffer for p in sentence_end_marks):
+            return ""
+        
+        # 如果緩衝區中有句子結束標點，則處理到最後一個句子結束標點
+        for mark in sentence_end_marks:
+            last_pos = self.text_buffer.rfind(mark)
+            if last_pos != -1:
+                # 確保包含句子結束標點
+                end_pos = last_pos + 1
+                
+                # 檢查是否應該包含更多文本
+                if end_pos < len(self.text_buffer) - 1:
+                    # 如果句子結束標點後面還有空格或其他標點，也包含進去
+                    next_char = self.text_buffer[end_pos:end_pos+1]
+                    if next_char.isspace() or next_char in [',', ';', ':', '\n']:
+                        end_pos += 1
+                
+                # 獲取要處理的文本
+                text_to_process = self.text_buffer[:end_pos]
+                
+                # 從緩衝區中移除已處理的文本
+                self.text_buffer = self.text_buffer[end_pos:]
+                
+                print(f"處理文本: '{text_to_process}', 剩餘緩衝區: '{self.text_buffer}'")
+                return text_to_process
+        
+        # 如果沒有句子結束標點但緩衝區已經很大，則強制處理
+        if len(self.text_buffer) > self.min_buffer_size:
+            # 在強制處理前添加句號，確保生成完整的音頻
+            text_to_process = self.text_buffer
+            # if not any(text_to_process.endswith(mark) for mark in sentence_end_marks):
+            #     text_to_process += "."
+            #     print(f"緩衝區無句子結束標點，添加句號到文本末尾")
+            
+            self.text_buffer = ""
+            print(f"緩衝區已達到 {len(text_to_process)} 字符 MIN_BUFFER_SIZE: {self.min_buffer_size}，強制處理整個緩衝區")
+            return text_to_process
+        
+        # 如果不符合上述條件，則不處理
+        return ""
     
+    def _filter_special_tokens(self, text: str) -> str:
+        """過濾特殊標記、URL和Markdown格式符號"""
+        if not text:
+            return ""
+            
+        # 過濾特殊標記
+        text = re.sub(r'<[^>]+>', '', text)
+        
+        # 過濾 URL
+        text = re.sub(r'https?://\S+|www\.\S+', '', text)
+        
+        # 過濾 Markdown 格式符號
+        text = re.sub(r'\*\*|__|~~|```|\[|\]|\(|\)|#|>|\|', '', text)
+        
+        # 過濾 emoji
+        emoji_pattern = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F]+", flags=re.UNICODE)
+        text = emoji_pattern.sub("", text)
+        
+        return text
+        
+    def _preprocess_text(self, text: str) -> str:
+        """預處理文本，移除特殊標記並清理格式"""
+        if not text:
+            return ""
+            
+        # 過濾特殊標記、URL和Markdown格式
+        text = self._filter_special_tokens(text)
+        
+        # 移除多餘的空格
+        # text = re.sub(r'\s+', ' ', text)
+        
+        # 移除前後空格
+        # text = text.strip()
+        
+        return text
+        
     def _generate_audio_internal(self, text: str) -> np.ndarray:
         """
         內部方法：生成音頻數據
         
         Args:
-            text: 要轉換為語音的文本
+            text: 要合成的文本
             
         Returns:
-            生成的音頻數據，如果生成失敗則返回空數組
+            音頻數據或空數組
         """
-        if not text or text.strip() == "":
+        if not text or not text.strip():
+            print("⚠️ 收到空文本，跳過音頻生成")
             return np.array([])
-        
+            
         try:
-            # 使用確定的方式調用pipeline
-            if self.use_named_params:
-                generator = self.pipeline(text, voice=self.voice_tensor, speed=self.speed)
-            else:
-                generator = self.pipeline(text, self.voice_tensor, self.speed)
-            
-            # 收集音頻片段
-            all_audio = []
-            for _, _, audio in generator:
-                all_audio.append(audio)
-            
-            # 合併音頻
-            if not all_audio:
+            # 預處理文本
+            processed_text = self._preprocess_text(text)
+            if not processed_text or not processed_text.strip():
+                print("⚠️ 預處理後文本為空，跳過音頻生成")
                 return np.array([])
+            
+            # 確保文本以句子結束標點結尾
+            sentence_end_marks = ['.', '!', '?']
+            if not any(processed_text.strip().endswith(mark) for mark in sentence_end_marks):
+                processed_text = processed_text.strip() + "."
+                print(f"添加句號到文本末尾: '{processed_text}'")
                 
-            full_audio = np.concatenate(all_audio)
-            return full_audio
+            print(f"開始為文本生成音頻: '{processed_text[:50]}'{'...' if len(processed_text) > 50 else ''}")
+            
+            # 使用KPipeline生成音頻
+            with torch.no_grad():
+                # 使用在_load_model中測試確定的調用方式
+                all_audio = []
+                
+                if hasattr(self, 'use_named_params') and self.use_named_params:
+                    # 使用命名參數調用
+                    print("使用命名參數調用pipeline")
+                    generator = self.pipeline(processed_text, voice=self.voice_tensor, speed=self.speed)
+                else:
+                    # 使用位置參數調用
+                    print("使用位置參數調用pipeline")
+                    generator = self.pipeline(processed_text, self.voice_tensor, self.speed)
+                
+                # 收集音頻片段
+                for _, _, audio in generator:
+                    all_audio.append(audio)
+                
+                # 合併音頻
+                if not all_audio:
+                    print("生成的音頻片段為空")
+                    return np.array([])
+                    
+                # 合併所有音頻片段
+                audio_array = np.concatenate(all_audio)
+                
+                # 確保音頻數據有效
+                if audio_array.size == 0:
+                    print("⚠️ 生成的音頻數據為空")
+                    return np.array([])
+                    
+                print(f"✅ 音頻生成成功，長度: {len(audio_array)} 樣本")
+                return audio_array
                 
         except Exception as e:
-            print(f"生成音頻時出錯: {str(e)}")
+            print(f"❌ 音頻生成出錯: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return np.array([])
+            
+    def clear_buffer(self) -> None:
+        """清空所有緩衝區和音頻階列"""
+        # 清空文本緩衝區
+        self.text_buffer = ""
+            
+        # 清空音頻階列
+        try:
+            while not self.audio_queue.empty():
+                self.audio_queue.get_nowait()
+                self.audio_queue.task_done()
+        except Exception as e:
+            print(f"清空音頻階列出錯: {str(e)}")
+            
+        print("所有緩衝區和階列已清空")
         
-    def _filter_special_tokens(self, text):
-        """過濾特殊標記、URL和Markdown格式符號"""
-        # 過濾特殊標記
-        text = re.sub(r'<[^>]+>', '', text)
-        
-        # 過濾URL
-        text = re.sub(r'https?://\S+', '', text)
-        
-        # 過濾Markdown格式符號（保留文本內容）
-        text = re.sub(r'\*\*(.*?)\*\*', r'\1', text)  # 移除粗體標記 **text**
-        text = re.sub(r'\*(.*?)\*', r'\1', text)      # 移除斜體標記 *text*
-        text = re.sub(r'__(.*?)__', r'\1', text)      # 移除下劃線標記 __text__
-        text = re.sub(r'_(.*?)_', r'\1', text)        # 移除斜體標記 _text_
-        
-        # # 清理多餘空格和換行
-        # text = re.sub(r'\s+', ' ', text).strip()
-        
-        #過濾文本，移除emoji和特殊格式
-        emoji_pattern = re.compile("[\U0001F600-\U0001F64F\U0001F300-\U0001F5FF\U0001F680-\U0001F6FF\U0001F700-\U0001F77F]+", flags=re.UNICODE)
-        text = emoji_pattern.sub("", text)
-        return text
-    
     def add_text(self, text: str) -> None:
         """
-        添加文本到緩衝區
-        
+        添加文本到緩衝區中進行處理
+            
         Args:
             text: 要添加的文本
         """
         if not text:
             return
             
-        cleaned_text = self._filter_special_tokens(text)
-        #cleaned_text = text
-        if not cleaned_text:
-            return
-        # 添加到緩衝區
-        self.text_buffer += cleaned_text
+        # 添加文本到緩衝區
+        self.text_buffer += text
+        print(f"添加文本到緩衝區: '{text}' (緩衝區當前大小: {len(self.text_buffer)} 字符)")
         
-        # 如果緩衝區已經很大，強制處理
-        if len(self.text_buffer) > self.min_buffer_size * 3:
-            print(f"⚠️ 緩衝區已達到 {len(self.text_buffer)} 字符，強制處理")
-            temp_buffer = self.text_buffer
-            self.text_buffer = ""
-            
-            # 生成音頻並添加到隊列
-            try:
-                audio_data = self._generate_audio_internal(temp_buffer)
-                if len(audio_data) > 0:
-                    self.audio_queue.put(audio_data)
-            except Exception as e:
-                print(f"❌ 強制處理緩衝區時出錯: {str(e)}")
+        # 確保文本結尾有適當的空格，以避免句子連在一起
+        if not self.text_buffer.endswith((' ', '\n', '.', '!', '?', ',', ';', ':')):
+            self.text_buffer += ' '
+        
+        # 檢查是否有句子結束標點
+        if any(p in text for p in ['.', '!', '?']):
+            print("檢測到句子結束標記，立即處理緩衝區")
+            # 強制處理緩衝區
+            self.force_process()
     
     def force_process(self) -> None:
         """強制處理當前緩衝區中的所有文本"""
+        # 對全局持久化音頻緩衝區的引用
+        import sys
+        import importlib
+        api_server_module = importlib.import_module("api_server")
+        persistent_audio_buffer = getattr(api_server_module, "persistent_audio_buffer", None)
+        
         if not self.text_buffer:
+            print("⚠️ 緩衝區為空，無需強制處理")
             return
             
-        print(f"🔄 強制處理緩衝區中的 {len(self.text_buffer)} 字符文本")
+        print(f"🔄 強制處理緩衝區中的 {len(self.text_buffer)} 字符文本: '{self.text_buffer}'")
         temp_buffer = self.text_buffer
-        self.text_buffer = ""
+        self.text_buffer = ""  # 清空緩衝區
         
         # 生成音頻並添加到隊列
         try:
             audio_data = self._generate_audio_internal(temp_buffer)
             if len(audio_data) > 0:
-                self.audio_queue.put(audio_data)
+                self.audio_queue.put(audio_data.copy())  # 使用copy避免引用問題
+                
+                # 同時將音頻放入持久化緩衝區
+                if persistent_audio_buffer is not None:
+                    try:
+                        # 如果緩衝區已滿，先移除舊的數據
+                        if persistent_audio_buffer.full():
+                            try:
+                                persistent_audio_buffer.get_nowait()
+                            except:
+                                pass
+                        persistent_audio_buffer.put(audio_data.copy())
+                        print(f"✅ 音頻已添加到持久化緩衝區，緩衝區大小: {persistent_audio_buffer.qsize()}")
+                    except Exception as e:
+                        print(f"❌ 添加到持久化緩衝區出錯: {str(e)}")
+                
+                print(f"✅ 強制處理完成，音頻長度: {len(audio_data)} 樣本，隊列大小: {self.audio_queue.qsize()}")
+            else:
+                print("⚠️ 強制處理生成的音頻為空")
         except Exception as e:
             print(f"❌ 強制處理緩衝區時出錯: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
     
     def save_audio(self, text: str, file_path: str) -> bool:
         """
@@ -361,14 +521,85 @@ class TTSManager:
                 return False
         return False
     
+    def generate_audio(self, text: str) -> np.ndarray:
+        """
+        生成音頻數據但不播放或保存
+        
+        Args:
+            text: 要轉換為語音的文本
+            
+        Returns:
+            生成的音頻數據，如果生成失敗則返回空數組
+        """
+        return self._generate_audio_internal(text)
+    
+    def get_next_audio(self, timeout: float = 0.5) -> Optional[np.ndarray]:
+        """
+        從音頻隊列中取出下一個音頻段
+        
+        Args:
+            timeout: 等待音頻數據的最大時間（秒）
+            
+        Returns:
+            音頻數據或None（如果隊列為空）
+        """
+        try:
+            # 如果隊列為空但緩衝區有文本，則強制處理緩衝區
+            if self.audio_queue.empty() and self.text_buffer:
+                # 檢查緩衝區中是否有完整句子
+                has_complete_sentence = any(p in self.text_buffer for p in ['.', '!', '?'])
+                
+                if has_complete_sentence and len(self.text_buffer) > self.min_buffer_size:
+                    print(f"音頻隊列為空，但緩衝區有 {len(self.text_buffer)} 字符，強制處理")
+                    self.force_process()
+                    
+                    # 強制處理後再次檢查隊列
+                    if not self.audio_queue.empty():
+                        return self.audio_queue.get(timeout=timeout)
+                
+            # 嘗試從隊列中取出音頻數據
+            if not self.audio_queue.empty():
+                audio_data = self.audio_queue.get(timeout=timeout)
+                
+                # 確保音頻數據不為空
+                if audio_data is not None and len(audio_data) > 0:
+                    return audio_data
+                else:
+                    print("取出的音頻數據為空，繼續等待")
+                    return None
+            else:
+                # 如果隊列為空但有持續的文本輸入，則不要印出太多日誌
+                if not self.text_buffer:
+                    print("音頻隊列已空，等待數據...")
+                return None
+                
+            audio_data = self.audio_queue.get(timeout=timeout)
+            self.audio_queue.task_done()
+            if audio_data is not None:
+                print(f"成功獲取音頻，長度: {len(audio_data)} 樣本")
+                return audio_data
+            return None
+        except queue.Empty:
+            return None
+    
     def wait_until_done(self) -> None:
         """等待所有隊列中的項目處理完成"""
         # 強制處理緩衝區中的剩餘文本
         self.force_process()
         
         # 等待音頻隊列清空
-        self.audio_queue.join()
-        print("✅ 所有語音處理任務已完成")
+        try:
+            self.audio_queue.join(timeout=5.0)  # 添加超時以避免無限等待
+            print("✅ 所有語音處理任務已完成")
+        except Exception as e:
+            print(f"⚠️ 等待語音處理完成時出錯: {str(e)}")
+            # 清空隊列以避免死鎖
+            try:
+                while not self.audio_queue.empty():
+                    self.audio_queue.get_nowait()
+                    self.audio_queue.task_done()
+            except:
+                pass
     
     def shutdown(self) -> None:
         """關閉TTS管理器"""
