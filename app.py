@@ -35,27 +35,51 @@ API_URL = "http://localhost:8000"  # API 服務器URL
 SAMPLE_RATE = 16000  # 錄音採樣率
 DURATION = 10  # 錄音最大時間（秒）
 MAX_TRANSCRIPT_LENGTH = 100  # 顯示的最大轉錄文本長度
-audio_files_list = []
 
-# 初始化會話狀態
-if "messages" not in st.session_state:
-    st.session_state["messages"] = []
-if "conversation_id" not in st.session_state:
-    st.session_state["conversation_id"] = str(uuid.uuid4())
-if "audio_bytes" not in st.session_state:
-    st.session_state["audio_bytes"] = None
-if "transcript" not in st.session_state:
-    st.session_state["transcript"] = ""
-if "realtime_response" not in st.session_state:
-    st.session_state["realtime_response"] = ""
-if "processed_audio" not in st.session_state:
-    st.session_state["processed_audio"] = False
-if "play_requested" not in st.session_state:
-    st.session_state["play_requested"] = False
-if "audio_stream_active" not in st.session_state:
-    st.session_state["audio_stream_active"] = False
-if "recorder_key_counter" not in st.session_state:
-    st.session_state["recorder_key_counter"] = 0 
+def init_session_state():
+    # 初始化對話歷史
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
+    
+    # 初始化錄音狀態
+    if "is_recording" not in st.session_state:
+        st.session_state["is_recording"] = False
+    
+    # 初始化音頻播放列表
+    if "audio_to_play" not in st.session_state:
+        st.session_state["audio_to_play"] = []
+        
+    # 初始化音頻播放標記
+    if "audio_bytes_to_play" not in st.session_state:
+        st.session_state["audio_bytes_to_play"] = None
+        
+    # 初始化音頻播放計數器（用於強制重新渲染）
+    if "audio_play_counter" not in st.session_state:
+        st.session_state["audio_play_counter"] = 0
+        
+    # 初始化會話狀態
+    if "conversation_id" not in st.session_state:
+        st.session_state["conversation_id"] = str(uuid.uuid4())
+    if "audio_bytes" not in st.session_state:
+        st.session_state["audio_bytes"] = None
+    if "transcript" not in st.session_state:
+        st.session_state["transcript"] = ""
+    if "realtime_response" not in st.session_state:
+        st.session_state["realtime_response"] = ""
+    if "processed_audio" not in st.session_state:
+        st.session_state["processed_audio"] = False
+    if "play_requested" not in st.session_state:
+        st.session_state["play_requested"] = False
+    if "audio_stream_active" not in st.session_state:
+        st.session_state["audio_stream_active"] = False
+    if "recorder_key_counter" not in st.session_state:
+        st.session_state["recorder_key_counter"] = 0
+    if "audio_permission_granted" not in st.session_state:
+        st.session_state["audio_permission_granted"] = False
+
+init_session_state()
+
+audio_files_list = []
 
 def get_theme_specific_css():
     theme = "lights"
@@ -95,26 +119,52 @@ def get_theme_specific_css():
         </style>
         """
 
-def play_audio_bytes(audio_bytes: bytes):
+def autoplay_audio(audio_file):
     """
-    播放音頻字節數據 - 使用 HTML 播放器
+    自動播放音頻文件 - 使用Streamlit的音頻播放器
     
     Args:
-        audio_bytes: 音頻數據的二進制內容
+        audio_file: 音頻文件路徑或音頻字節數據
     """
     try:
-        # 使用 HTML audio 標籤直接播放
+        print(f"嘗試播放音頻文件: {audio_file}")
+        
+        # 如果是文件路徑，則讀取文件內容
+        if isinstance(audio_file, str) and os.path.exists(audio_file):
+            with open(audio_file, "rb") as f:
+                audio_bytes = f.read()
+        else:
+            # 假設已經是字節數據
+            audio_bytes = audio_file
+            
+        # 使用base64編碼並創建帶有autoplay屬性的audio標籤
         audio_b64 = base64.b64encode(audio_bytes).decode('utf-8')
         audio_html = f"""
-        <audio controls autoplay>
-          <source src="data:audio/webm;base64,{audio_b64}" type="audio/webm">
+        <audio controls autoplay="true">
+          <source src="data:audio/wav;base64,{audio_b64}" type="audio/wav">
           您的瀏覽器不支持音頻播放。
         </audio>
         """
-        st.markdown(audio_html, unsafe_allow_html=True)
-    
+        return audio_html
+        
     except Exception as e:
-        st.error(f"播放音頻錯誤: {str(e)}")
+        print(f"播放音頻錯誤: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return None
+
+# 將音頻文件添加到播放佇列
+# 這個函數可以在任何線程中調用
+# 但只會將音頻路徑添加到列表中，不會直接播放
+# 實際播放會在主線程中進行
+
+# 全局音頻播放列表
+# 存儲需要播放的音頻文件路徑
+# 主線程會定期檢查這個列表並播放新的音頻
+# 這樣可以避免在後台線程中調用Streamlit函數
+
+if "audio_to_play" not in st.session_state:
+    st.session_state["audio_to_play"] = []
 
 def speech_to_text(audio_bytes: bytes) -> Optional[str]:
     """
@@ -561,6 +611,26 @@ def audio_player():
                             'format': 'audio/wav'
                         })
                         
+                        # 將音頻文件讀取為二進制數據並保存到會話狀態
+                        try:
+                            # 讀取音頻文件
+                            with open(audio_path, "rb") as f:
+                                audio_bytes = f.read()
+                                
+                            # 保存到會話狀態，讓主線程可以播放
+                            st.session_state["audio_bytes_to_play"] = audio_bytes
+                            # 增加計數器以強制重新渲染
+                            st.session_state["audio_play_counter"] += 1
+                            
+                            print(f"已將音頻數據保存到會話狀態，等待主線程播放: {audio_path}")
+                            
+                            # 強制Streamlit重新運行以播放音頻
+                            # 注意：這裡不能直接調用st.experimental_rerun()，因為在線程中不能調用Streamlit函數
+                        except Exception as e:
+                            print(f"處理音頻數據出錯: {str(e)}")
+                            import traceback
+                            print(traceback.format_exc())
+                        
                         is_playing = False
                         print(f"音頻文件已添加到播放列表，當前列表長度: {len(audio_files_list)}")
                     else:
@@ -735,7 +805,10 @@ def submit_message():
     
     # 重置實時回應
     st.session_state["realtime_response"] = ""
-    display_available_audio_files()
+    
+    # 添加自動播放容器（簡化版）
+    st.markdown('<div id="auto-play-container"></div>', unsafe_allow_html=True)
+    
     # 強制重新渲染頁面以顯示新的對話
     st.experimental_rerun()
 
@@ -899,6 +972,15 @@ def setup_static_file_serving():
             player.style.display = 'block';
             controls.style.display = 'block';
             
+            // 嘗試播放
+            player.src = audioUrl;
+            player.play().then(() => {
+                console.log('Playing audio:', audioUrl);
+                status.textContent = 'Playing...';
+            }).catch(error => {
+                console.error('Failed to play audio:', error);
+                status.textContent = 'Click Play button to listen';
+            });
             // 更新狀態
             status.textContent = 'New audio available';
             
@@ -954,135 +1036,44 @@ def setup_static_file_serving():
 
 # 顯示所有可用的音頻文件
 def display_available_audio_files():
-    """顯示所有可用的音頻文件供手動播放"""
+    """顯示最新的音頻文件（簡化版）"""
     global audio_files_list
     
     # 重新掃描音頻文件
     audio_files_list = scan_audio_files()
     
     print(f"Audio files list now has {len(audio_files_list)} items")
-    for i, item in enumerate(audio_files_list):
-        print(f"  {i+1}. {item['path']} (exists: {os.path.exists(item['path'])})")
     
-    # 如果有音頻文件
-    if audio_files_list:
-        st.subheader("音頻播放器")
-        
-        # 直接顯示所有音頻文件
-        valid_files = []
-        for i, audio_item in enumerate(audio_files_list):
-            audio_path = audio_item['path']
-            file_name = os.path.basename(audio_path)
-            
-            if os.path.exists(audio_path):
-                try:
-                    file_size = os.path.getsize(audio_path)
-                    if file_size == 0:
-                        print(f"Warning: Audio file {audio_path} is empty (0 bytes)")
-                        continue
-                        
-                    print(f"Reading audio file: {audio_path} (size: {file_size} bytes)")
-                    with open(audio_path, "rb") as f:
-                        audio_bytes = f.read()
-                    
-                    # 如果文件有效，顯示播放器
-                    if audio_bytes:
-                        valid_files.append(audio_item)
-                        # 顯示一個明確的標題
-                        st.markdown(f"**音頻 {i+1}: {file_name}**")
-                        
-                        # 使用Streamlit的音頻播放器
-                        st.audio(audio_bytes, format="audio/wav")
-                        
-                        # 提供直接下載按鈕
-                        st.download_button(
-                            label=f"下載音頻文件",
-                            data=audio_bytes,
-                            file_name=file_name,
-                            mime="audio/wav",
-                            help="下載音頻文件後可以在你的設備上播放"
-                        )
-                except Exception as e:
-                    print(f"Error reading audio file {audio_path}: {str(e)}")
-                    st.error(f"讀取音頻文件出錯: {str(e)}")
-            else:
-                print(f"Audio file does not exist: {audio_path}")
-        
-        # 更新列表以只包含有效文件
-        if valid_files:
-            audio_files_list = valid_files
-            print(f"Updated audio_files_list to {len(valid_files)} valid files")
-        else:
-            print("No valid audio files found")
-            audio_files_list = []
-            st.warning("沒有找到有效的音頻文件。請嘗試重新生成音頻。")
-    else:
-        st.info("目前沒有可用的音頻文件。")
-
-# 檢查並播放音頻函數
-def check_and_play_audio():
-    """檢查全局音頻文件列表並播放新的音頻"""
-    global audio_files_list
+    # 添加自動播放容器
+    st.markdown('<div id="auto-play-container"></div>', unsafe_allow_html=True)
     
-    # 如果有音頻文件待播放
+    # 只顯示最新的音頻文件（如果有）
     if audio_files_list:
-        # 取出最新的音頻文件
-        audio_item = audio_files_list[0]
-        audio_path = audio_item['path']
-        file_name = os.path.basename(audio_path)
+        latest_audio = audio_files_list[-1]
+        audio_path = latest_audio['path']
         
-        # 顯示一個簡單的標題
-        st.subheader("最新音頻回應")
-        
-        # 創建一個直接的下載按鈕
         if os.path.exists(audio_path):
             try:
-                with open(audio_path, "rb") as f:
-                    audio_bytes = f.read()
-                
-                # 如果文件為空，則跳過
-                if not audio_bytes:
-                    st.error(f"音頻文件為空: {audio_path}")
-                    return False
-                
-                # 顯示一個大而顯眼的下載按鈕
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    # 使用Streamlit的音頻播放器
-                    st.audio(audio_bytes, format="audio/wav")
-                
-                with col2:
-                    # 提供下載連結
-                    st.download_button(
-                        label=f"下載音頻文件",
-                        data=audio_bytes,
-                        file_name=file_name,
-                        mime="audio/wav",
-                        help="下載音頻文件後可以在你的設備上播放",
-                        type="primary"
-                    )
-                
-                # 顯示播放說明
-                st.info("如果音頻不自動播放，請點擊上方的播放按鈕或下載音頻文件後手動播放。")
-                
-                # 創建一個按鈕來清除已播放的音頻
-                if st.button("清除已播放的音頻", type="secondary"):
-                    # 從列表中移除已播放的音頻
-                    audio_files_list.pop(0)
-                    st.success(f"已清除音頻: {file_name}")
-                    st.experimental_rerun()
-                
-                return True
+                file_size = os.path.getsize(audio_path)
+                if file_size > 0:
+                    print(f"Latest audio file: {audio_path} (size: {file_size} bytes)")
+                    # 不需要顯示音頻播放器，因為我們使用自動播放功能
             except Exception as e:
-                st.error(f"讀取音頻文件出錯: {str(e)}")
-                return False
-        else:
-            st.error(f"音頻文件不存在: {audio_path}")
+                print(f"Error checking audio file {audio_path}: {str(e)}")
+
+# 檢查並播放音頻函數 - 簡化版
+def check_and_play_audio():
+    """檢查全局音頻文件列表 - 簡化版本"""
+    global audio_files_list
     
-    # 返回 False 表示沒有音頻被播放
-    return False
+    # 重新掃描音頻文件
+    audio_files_list = scan_audio_files()
     
+    # 只打印日誌信息
+    if audio_files_list:
+        print(f"Audio files available: {len(audio_files_list)}")
+    
+    return True
     # 返回 False 表示沒有音頻被播放
     return False
 
@@ -1133,42 +1124,6 @@ def create_auto_refresh_audio_player():
     
     # 使用Streamlit的components模塊將HTML代碼嵌入頁面
     components.html(audio_player_html, height=80)
-
-# 創建一個簡單的音頻播放器
-def create_simple_audio_player():
-    """創建一個簡單的音頻播放器元素"""
-    # 如果有音頻要播放，則播放音頻
-    if "audio_files" in st.session_state and st.session_state["audio_files"]:
-        # 取出最新的音頻文件
-        audio_item = st.session_state["audio_files"][0]  # 只查看不刪除
-        audio_path = audio_item['path']
-        
-        if os.path.exists(audio_path):
-            # 讀取音頻文件
-            with open(audio_path, "rb") as f:
-                audio_bytes = f.read()
-            
-            # 創建一個臨時音頻元素來播放音頻
-            st.audio(audio_bytes, format="audio/wav")
-            
-            # 將音頻文件URL設置為全局JavaScript變量
-            audio_url = f"/audio/{os.path.basename(audio_path)}"
-            st.markdown(f"""
-            <script>
-                window.latestAudioUrl = '{audio_url}';
-                console.log('Set latest audio URL:', '{audio_url}');
-            </script>
-            """, unsafe_allow_html=True)
-            
-            # 記錄播放信息
-            print(f"設置音頻文件URL為: {audio_url}")
-            
-            # 從列表中移除已播放的音頻
-            st.session_state["audio_files"].pop(0)
-            
-            return True
-    
-    return False
 
 # 創建一個路由來提供音頻文件
 def serve_audio_files():
@@ -1256,28 +1211,29 @@ def main():
     st.title("英語對話AI教師 🎓")
     st.markdown(get_theme_specific_css(), unsafe_allow_html=True)
     
-    # 確保音頻目錄存在並掃描音頻文件
+    # 確保音頻目錄存在
     ensure_audio_directory()
-    scan_audio_files()
     
-    # 創建一個對話區域和控制面板
-    col1, col2 = st.columns([7, 3])
+    # 創建音頻自動播放容器
+    st.markdown('<div id="auto-play-container"></div>', unsafe_allow_html=True)
     
-    with col1:
-        # 主要對話區域
-        
-        # 設置音頻權限提示
-        setup_audio_permissions()
-        
-        # 檢查並播放音頻
-        check_and_play_audio()
+    # 創建音頻播放容器
+    audio_container = st.container()
     
-    with col2:
-        # 控制面板
-        st.subheader("音頻控制面板")
-        
-        # 顯示所有可用的音頻文件
-        display_available_audio_files()
+    # 檢查是否有音頻需要播放
+    if "audio_bytes_to_play" in st.session_state and st.session_state["audio_bytes_to_play"] is not None:
+        try:
+            # 使用Streamlit的原生音頻組件播放
+            with audio_container:
+                st.audio(st.session_state["audio_bytes_to_play"], format="audio/wav", autoplay=True)
+                print(f"已播放音頻，計數器: {st.session_state['audio_play_counter']}")
+            
+            # 播放後清除，避免重複播放
+            st.session_state["audio_bytes_to_play"] = None
+        except Exception as e:
+            print(f"播放音頻出錯: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
     
     # 側邊欄
     with st.sidebar:
@@ -1351,7 +1307,64 @@ def main():
                 # 如果尚未處理
                 if not st.session_state["processed_audio"]:
                     st.write("正在處理錄音...")
-
+                    
+                    # 設置音頻權限標記 - 這是關鍵步驟，因為用戶已經點擊停止錄音按鈕
+                    st.session_state["audio_permission_granted"] = True
+                    
+                    # 激活音頻上下文並設置自動播放功能
+                    st.markdown("""
+                    <script>
+                        (function() {
+                            // 播放一個靜音音頻來激活音頻上下文
+                            const silentAudio = new Audio();
+                            silentAudio.src = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+                            silentAudio.play().catch(e => console.log('Silent audio play error (ignorable):', e));
+                            
+                            // 設置全局標記
+                            window.audioPermissionGranted = true;
+                            console.log('Audio permission granted from recording interaction');
+                            
+                            // 設置監聽器來處理新增的音頻元素
+                            const setupAutoPlayObserver = function() {
+                                // 監聽新增的音頻元素
+                                const observer = new MutationObserver(function(mutations) {
+                                    mutations.forEach(function(mutation) {
+                                        if (mutation.addedNodes) {
+                                            mutation.addedNodes.forEach(function(node) {
+                                                if (node.nodeName === 'AUDIO' || 
+                                                   (node.nodeType === 1 && node.querySelector('audio'))) {
+                                                    // 直接尋找音頻元素或其容器中的音頻元素
+                                                    const audioElement = node.nodeName === 'AUDIO' ? 
+                                                                       node : node.querySelector('audio');
+                                                    if (audioElement) {
+                                                        console.log('New audio element detected, attempting autoplay');
+                                                        setTimeout(() => {
+                                                            audioElement.play().catch(e => {
+                                                                console.error('Autoplay failed:', e);
+                                                            });
+                                                        }, 500); // 稍後再嘗試播放，確保元素已完全加載
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
+                                });
+                                
+                                // 監視整個文檔以捕獲新添加的音頻元素
+                                observer.observe(document.body, { childList: true, subtree: true });
+                                console.log('Audio autoplay observer enabled');
+                                return observer;
+                            };
+                            
+                            // 啟動監聽器
+                            const observer = setupAutoPlayObserver();
+                            
+                            // 將監聽器存儲為全局變量，以避免垃圾回收
+                            window.audioObserver = observer;
+                        })();
+                    </script>
+                    """, unsafe_allow_html=True)
+                    
                     st.session_state["audio_bytes"] = audio_data['bytes']
                     # 標記為已處理
                     st.session_state["processed_audio"] = True
@@ -1382,7 +1395,8 @@ def main():
                 
                 # 檢查是否請求播放
                 if st.session_state["play_requested"] and st.session_state["audio_bytes"]:
-                    play_audio_bytes(st.session_state["audio_bytes"])
+                    # 直接使用Streamlit的audio組件播放
+                    st.audio(st.session_state["audio_bytes"], format="audio/webm", autoplay=True)
                     st.session_state["play_requested"] = False
             
             # 發音檢查按鈕
