@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>英語對話AI教師</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 側邊欄 -->
+        <div class="sidebar">
+            <h2>設置</h2>
+
+            <h3>使用方法</h3>
+            <div class="instructions">
+                <ol>
+                    <li>點擊「開始錄音」按鈕說話</li>
+                    <li>錄音完成後會自動轉錄並發送</li>
+                    <li>可以使用「檢查發音」功能評估你的發音</li>
+                    <li>使用「重置對話」開始新的對話</li>
+                </ol>
+            </div>
+
+            <hr>
+
+            <button id="reset-button" class="btn primary-btn">重置對話</button>
+        </div>
+
+        <!-- 主要內容區 -->
+        <div class="main-content">
+            <!-- 聊天區域 -->
+            <div class="chat-area">
+                <h2>對話區域</h2>
+                <div id="chat-container" class="chat-container"></div>
+
+                <hr>
+
+                <div class="input-area">
+                    <div id="transcript-container" style="display: none;">
+                        <label for="transcript-editor">編輯或確認轉錄文本:</label>
+                        <textarea id="transcript-editor" rows="4"></textarea>
+                    </div>
+                    <div id="realtime-response" class="realtime-response"></div>
+                </div>
+            </div>
+
+            <!-- 控制面板 -->
+            <div class="control-panel">
+                <h2>控制面板</h2>
+
+                <div class="recorder-container">
+                    <button id="record-button" class="btn record-btn">
+                        <i class="fas fa-microphone"></i> 開始錄音
+                    </button>
+                    <p id="recording-status"></p>
+                </div>
+
+                <div id="audio-player-container" style="display: none;">
+                    <audio id="audio-player" controls></audio>
+                </div>
+
+                <div class="control-buttons">
+                    <div class="button-row">
+                        <button id="play-button" class="btn secondary-btn" disabled>播放錄音</button>
+                        <button id="pronunciation-button" class="btn secondary-btn" disabled>檢查發音</button>
+                    </div>
+                    <button id="submit-button" class="btn primary-btn" disabled>手動送出</button>
+                </div>
+
+                <hr>
+
+                <p>與AI老師對話，練習你的英語口語能力！</p>
+
+                <div id="pronunciation-feedback" class="pronunciation-feedback"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 自動播放音頻的容器 -->
+    <div id="auto-play-container"></div>
+
+    <!-- JavaScript 文件 -->
+    <script src="api-service.js"></script>
+    <script src="audio-handler.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

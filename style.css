@@ -1,0 +1,282 @@
+/* 全局樣式 */
+:root {
+    --primary-color: #4169E1;
+    --secondary-color: #e6f3ff;
+    --background-color: #ffffff;
+    --text-color: #262730;
+    --user-message-bg: #f0f2f6;
+    --bot-message-bg: #e6f3ff;
+    --border-color: #e0e0e0;
+    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    line-height: 1.6;
+}
+
+.container {
+    display: flex;
+    min-height: 100vh;
+}
+
+/* 側邊欄樣式 */
+.sidebar {
+    width: 250px;
+    padding: 20px;
+    background-color: #f8f9fa;
+    border-right: 1px solid var(--border-color);
+}
+
+.sidebar h2 {
+    color: var(--primary-color);
+    margin-bottom: 20px;
+}
+
+.instructions {
+    margin-bottom: 20px;
+}
+
+.instructions ol {
+    padding-left: 20px;
+}
+
+.instructions li {
+    margin-bottom: 8px;
+}
+
+hr {
+    border: 0;
+    height: 1px;
+    background-color: var(--border-color);
+    margin: 20px 0;
+}
+
+/* 主要內容區樣式 */
+.main-content {
+    flex: 1;
+    display: flex;
+    padding: 20px;
+}
+
+/* 聊天區域樣式 */
+.chat-area {
+    flex: 7;
+    padding: 20px;
+    margin-right: 20px;
+}
+
+.chat-container {
+    height: 60vh;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 20px;
+    background-color: #fafafa;
+}
+
+.chat-message {
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chat-message.user {
+    background-color: var(--user-message-bg);
+    align-self: flex-end;
+}
+
+.chat-message.bot {
+    background-color: var(--bot-message-bg);
+    align-self: flex-start;
+}
+
+.input-area {
+    margin-top: 20px;
+}
+
+#transcript-editor {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 5px;
+    margin-top: 10px;
+    resize: vertical;
+}
+
+.realtime-response {
+    min-height: 50px;
+    padding: 10px;
+    border: 1px dotted var(--border-color);
+    margin-top: 15px;
+    border-radius: 5px;
+    display: none;
+}
+
+/* 控制面板樣式 */
+.control-panel {
+    flex: 3;
+    padding: 20px;
+    background-color: #f8f9fa;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+}
+
+.recorder-container {
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+#recording-status {
+    margin-top: 10px;
+    font-style: italic;
+    color: #666;
+}
+
+.control-buttons {
+    margin-top: 20px;
+}
+
+.button-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+#audio-player-container {
+    margin: 15px 0;
+}
+
+#audio-player {
+    width: 100%;
+}
+
+/* 按鈕樣式 */
+.btn {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.primary-btn {
+    background-color: var(--primary-color);
+    color: white;
+    width: 100%;
+}
+
+.primary-btn:hover:not(:disabled) {
+    background-color: #3a5dcf;
+}
+
+.secondary-btn {
+    background-color: #f1f3f5;
+    color: var(--text-color);
+    flex: 1;
+}
+
+.secondary-btn:hover:not(:disabled) {
+    background-color: #e9ecef;
+}
+
+.record-btn {
+    background-color: #dc3545;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 50px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.record-btn.recording {
+    background-color: #198754;
+    animation: pulse 1.5s infinite;
+}
+
+.record-btn:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+@keyframes pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0.7);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(220, 53, 69, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
+    }
+}
+
+/* 發音反饋樣式 */
+.pronunciation-feedback {
+    margin-top: 20px;
+    padding: 15px;
+    border-radius: 5px;
+    background-color: var(--user-message-bg);
+    display: none;
+}
+
+.pronunciation-feedback h3 {
+    margin-bottom: 10px;
+    color: var(--primary-color);
+}
+
+.pronunciation-score {
+    font-size: 1.2rem;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.pronunciation-details {
+    margin-top: 10px;
+}
+
+/* 響應式設計 */
+@media (max-width: 992px) {
+    .container {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .main-content {
+        flex-direction: column;
+    }
+
+    .chat-area {
+        margin-right: 0;
+        margin-bottom: 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    .button-row {
+        flex-direction: column;
+    }
+}
