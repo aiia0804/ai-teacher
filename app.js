@@ -34,7 +34,29 @@ document.addEventListener('DOMContentLoaded', () => {
         silentAudio.src = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTcuODMuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
 
         // 嘗試播放以激活音頻上下文
-        silentAudio.play().catch(e => console.log('Silent audio play error (ignorable):', e));
+        const playPromise = silentAudio.play();
+        
+        if (playPromise !== undefined) {
+            playPromise.catch(e => {
+                console.log('Silent audio play error (ignorable):', e);
+                // 如果自動播放被阻止，可以在這裡顯示提示，要求用戶交互以啟用音頻
+                const audioContainer = document.getElementById('auto-play-container');
+                if (audioContainer) {
+                    const unlockButton = document.createElement('button');
+                    unlockButton.textContent = '點擊啟用音頻';
+                    unlockButton.className = 'btn btn-primary mb-3';
+                    unlockButton.onclick = () => {
+                        silentAudio.play().then(() => {
+                            console.log('音頻上下文已解鎖');
+                            unlockButton.remove();
+                        }).catch(err => {
+                            console.error('無法解鎖音頻上下文:', err);
+                        });
+                    };
+                    audioContainer.appendChild(unlockButton);
+                }
+            });
+        }
 
         // 設置音頻自動播放監視器
         setupAutoPlayObserver();
@@ -56,17 +78,41 @@ document.addEventListener('DOMContentLoaded', () => {
                                                 node : node.querySelector('audio');
                             if (audioElement) {
                                 console.log('新檢測到音頻元素，嘗試自動播放');
-                                setTimeout(() => {
-                                    audioElement.play().catch(e => {
-                                        console.error('自動播放失敗:', e);
-                                    });
-                                }, 500); // 稍後嘗試播放，確保元素已完全加載
+                                
+                                // 確保音頻元素已完全加載
+                                if (audioElement.readyState >= 2) {
+                                    tryPlayAudio(audioElement);
+                                } else {
+                                    // 如果音頻尚未加載，等待canplay事件
+                                    audioElement.addEventListener('canplay', () => {
+                                        tryPlayAudio(audioElement);
+                                    }, { once: true });
+                                    
+                                    // 設置超時，以防音頻加載失敗
+                                    setTimeout(() => {
+                                        if (audioElement.readyState < 2) {
+                                            console.warn('音頻加載超時，嘗試強制播放');
+                                            tryPlayAudio(audioElement);
+                                        }
+                                    }, 1000);
+                                }
                             }
                         }
                     });
                 }
             });
         });
+        
+        // 嘗試播放音頻的輔助函數
+        function tryPlayAudio(audioElement) {
+            const playPromise = audioElement.play();
+            if (playPromise !== undefined) {
+                playPromise.catch(e => {
+                    console.error('自動播放失敗:', e);
+                    // 如果自動播放失敗，可以在這裡添加備用方案
+                });
+            }
+        }
 
         // 監視整個文檔以捕獲新添加的音頻元素
         observer.observe(document.body, { childList: true, subtree: true });

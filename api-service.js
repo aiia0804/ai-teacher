@@ -112,7 +112,7 @@ class ApiService {
             console.log('開始TTS流接收');
 
             // 使用EventSource進行SSE連接
-            const url = `${this.API_URL}/api/tts_stream`;
+            const url = `${this.API_URL}/api/tts-stream`;
 
             // 使用fetch和ReadableStream處理SSE
             const response = await fetch(url, {
@@ -147,52 +147,76 @@ class ApiService {
     async processStream(reader) {
         let buffer = "";
         let decoder = new TextDecoder();
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 3;
 
         try {
             while (this.isTtsStreamActive) {
-                const { value, done } = await reader.read();
+                try {
+                    const { value, done } = await reader.read();
 
-                if (done) {
-                    console.log('TTS流已關閉');
-                    break;
-                }
-
-                // 將二進制數據轉換為文本
-                buffer += decoder.decode(value, { stream: true });
-
-                // 解析SSE事件
-                while (buffer.includes("\n\n")) {
-                    const [event, remaining] = buffer.split("\n\n", 2);
-                    buffer = remaining;
-
-                    const lines = event.split("\n");
-                    let eventType = null;
-                    let data = null;
-
-                    for (const line of lines) {
-                        if (line.startsWith("event: ")) {
-                            eventType = line.substring(7);
-                        } else if (line.startsWith("data: ")) {
-                            data = line.substring(6);
-                        }
+                    if (done) {
+                        console.log('TTS流已關閉');
+                        break;
                     }
 
-                    if (eventType === "audio" && data) {
-                        try {
-                            // 解析JSON數據
-                            const jsonData = JSON.parse(data);
-                            const audioBase64 = jsonData.audio;
+                    // 將二進制數據轉換為文本
+                    buffer += decoder.decode(value, { stream: true });
 
-                            if (audioBase64 && this.onTtsAudioChunk) {
-                                // 調用回調函數處理音頻數據
-                                this.onTtsAudioChunk(audioBase64);
+                    // 解析SSE事件
+                    while (buffer.includes("\n\n")) {
+                        const [event, remaining] = buffer.split("\n\n", 2);
+                        buffer = remaining;
+
+                        const lines = event.split("\n");
+                        let eventType = null;
+                        let data = null;
+
+                        for (const line of lines) {
+                            if (line.startsWith("event: ")) {
+                                eventType = line.substring(7);
+                            } else if (line.startsWith("data: ")) {
+                                data = line.substring(6);
                             }
-                        } catch (e) {
-                            console.error('解析音頻數據時出錯:', e);
                         }
-                    } else if (eventType === "close") {
-                        console.log('服務器已關閉TTS流連接');
-                        this.isTtsStreamActive = false;
+
+                        if (eventType === "audio" && data) {
+                            try {
+                                // 解析JSON數據
+                                const jsonData = JSON.parse(data);
+                                const audioBase64 = jsonData.audio;
+
+                                if (audioBase64 && this.onTtsAudioChunk) {
+                                    // 驗證Base64數據
+                                    if (typeof audioBase64 === 'string' && audioBase64.trim() !== '') {
+                                        // 調用回調函數處理音頻數據
+                                        this.onTtsAudioChunk(audioBase64);
+                                        // 重置重連嘗試次數
+                                        reconnectAttempts = 0;
+                                    } else {
+                                        console.warn('收到無效的Base64音頻數據');
+                                    }
+                                }
+                            } catch (e) {
+                                console.error('解析音頻數據時出錯:', e);
+                            }
+                        } else if (eventType === "close") {
+                            console.log('服務器已關閉TTS流連接');
+                            this.isTtsStreamActive = false;
+                            break;
+                        }
+                    }
+                } catch (readError) {
+                    console.error('讀取TTS流時出錯:', readError);
+                    
+                    // 嘗試重新連接
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        console.log(`嘗試重新連接TTS流 (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        continue;
+                    } else {
+                        console.error(`重連TTS流失敗，已達到最大嘗試次數 (${maxReconnectAttempts})`);
                         break;
                     }
                 }
@@ -201,6 +225,12 @@ class ApiService {
             console.error('處理TTS流時出錯:', error);
         } finally {
             this.isTtsStreamActive = false;
+            // 清理資源
+            if (this.onTtsAudioChunk) {
+                // 通知音頻處理器停止播放
+                console.log('通知音頻處理器清理資源');
+                // 這裡可以發送一個特殊信號給音頻處理器
+            }
         }
     }
 
