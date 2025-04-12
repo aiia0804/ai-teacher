@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 import asyncio
 from typing import List, Optional, Dict, Any
@@ -17,6 +18,7 @@ import soundfile as sf
 import queue
 from starlette.responses import Response
 import numpy as np
+
 # 配置日誌
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +48,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ------------ 模型定義 ------------ #
 class AudioToTextRequest(BaseModel):
@@ -179,7 +182,7 @@ async def tts_stream():
                         # 如果長時間沒有音頻且文本緩衝區為空，可能已經播放完所有內容
                         if not tts_manager.text_buffer and elapsed_since_last_audio > max_idle_time:
                             idle_count += 1
-                            if idle_count > 20:  # 如果連續20次都沒有音頻，則結束流
+                            if idle_count > 5:  # 如果連續10次都沒有音頻，則結束流
                                 print(f"TTS流空閒超過 {max_idle_time} 秒且無文本，關閉連接")
                                 break
                         
@@ -202,8 +205,8 @@ async def tts_stream():
 
 @app.get("/")
 async def root():
-    """API健康檢查"""
-    return {"status": "online", "message": "英語對話AI教師API正常運行"}
+    """提供前端HTML頁面"""
+    return FileResponse("static/index.html")
 
 @app.post("/api/stt")
 async def speech_to_text(request: AudioToTextRequest):
@@ -610,6 +613,10 @@ async def shutdown_event():
     logger.info("模型已關閉")
 
 # ------------ 主程序 ------------ #
+
+# 靜態文件配置
+app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/", StaticFiles(directory="static", html=True), name="static_html")
 
 if __name__ == "__main__":
     # 啟動服務器

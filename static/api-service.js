@@ -3,7 +3,7 @@
  */
 class ApiService {
     constructor() {
-        this.API_URL = 'http://localhost:8000';
+        this.API_URL = '/api';
         this.conversationId = this.generateUUID();
         this.messages = [];
         this.ttsStream = null;
@@ -32,7 +32,7 @@ class ApiService {
             // 轉換Blob為Base64
             const base64Audio = await this.blobToBase64(audioBlob);
 
-            const response = await fetch(`${this.API_URL}/api/stt`, {
+            const response = await fetch(`${this.API_URL}/stt`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -75,7 +75,7 @@ class ApiService {
                 scenario: 'general'
             };
 
-            const response = await fetch(`${this.API_URL}/api/llm`, {
+            const response = await fetch(`${this.API_URL}/llm`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -112,7 +112,7 @@ class ApiService {
             console.log('開始TTS流接收');
 
             // 使用EventSource進行SSE連接
-            const url = `${this.API_URL}/api/tts-stream`;
+            const url = `${this.API_URL}/tts-stream`;
 
             // 使用fetch和ReadableStream處理SSE
             const response = await fetch(url, {
@@ -260,7 +260,7 @@ class ApiService {
                 speed: 1.0
             };
 
-            const response = await fetch(`${this.API_URL}/api/tts`, {
+            const response = await fetch(`${this.API_URL}/tts`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -292,7 +292,7 @@ class ApiService {
             // 轉換Blob為Base64
             const base64Audio = await this.blobToBase64(audioBlob);
 
-            const response = await fetch(`${this.API_URL}/api/pronunciation`, {
+            const response = await fetch(`${this.API_URL}/pronunciation`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -321,7 +321,7 @@ class ApiService {
      */
     async getAvailableScenarios() {
         try {
-            const response = await fetch(`${this.API_URL}/api/scenarios`);
+            const response = await fetch(`${this.API_URL}/scenarios`);
 
             if (!response.ok) {
                 throw new Error(`獲取情境請求失敗: ${response.status}`);

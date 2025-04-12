@@ -14,3 +14,6 @@ __pycache__/
 *.pyd
 .cache/
 *.cache
+
+# 忽略 api_server.log
+api_server.log
