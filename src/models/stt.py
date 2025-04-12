@@ -41,7 +41,7 @@ class STTManager:
         # 初始化模型路徑
         if model_dir is None:
             base_dir = Path(__file__).resolve().parent.parent.parent
-            self.model_dir = base_dir / "src" / "models" / "stt_models"
+            self.model_dir = base_dir / "src" / "models" / "model_data" / "stt_models"
         else:
             self.model_dir = Path(model_dir)
         

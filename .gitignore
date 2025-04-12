@@ -1,7 +1,5 @@
-# 忽略 src/models/ 下的特定子目錄
-src/models/stt_models/
-src/models/llm_models/
-src/models/tts_models/
+# 忽略 src/models/model_data/ 下的特定子目錄
+src/models/model_data
 
 # 忽略所有 .wav 檔案
 *.wav
