@@ -179,15 +179,14 @@ class AudioHandler {
      */
     handleStreamingAudioChunk(audioBase64) {
         try {
-            // 將Base64轉換爲二進制數據
-            const binaryString = atob(audioBase64);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+            // 檢查Base64數據是否有效
+            if (!audioBase64 || audioBase64.trim() === '') {
+                console.warn('收到空的Base64音頻數據');
+                return;
             }
 
-            // 將數據加入隊列
-            this.audioQueue.push(bytes);
+            // 直接將Base64音頻數據存儲到隊列中
+            this.audioQueue.push(audioBase64);
 
             // 如果沒有在播放，開始播放
             if (!this.isPlayingStreamingAudio) {
@@ -210,20 +209,21 @@ class AudioHandler {
         this.isPlayingStreamingAudio = true;
 
         try {
-            // 取出下一個音頻塊
-            const audioData = this.audioQueue.shift();
-
-            // 創建音頻Blob
-            const audioBlob = new Blob([audioData], { type: 'audio/wav' });
-
+            // 取出下一個Base64音頻數據
+            const audioBase64 = this.audioQueue.shift();
+            
+            // 準備音頻數據 - 使用WAV格式
+            const audioSrc = `data:audio/wav;base64,${audioBase64}`;
+            
             // 創建音頻元素
-            const audioUrl = URL.createObjectURL(audioBlob);
             const audioElement = document.createElement('audio');
-            audioElement.src = audioUrl;
+            audioElement.src = audioSrc;
+            
+            // 設置音頻屬性
+            audioElement.controls = false;  // 不顯示控制項
 
             // 設置播放完成的回調
             audioElement.onended = () => {
-                URL.revokeObjectURL(audioUrl);
                 audioElement.remove();
                 // 繼續播放下一個
                 this.playNextAudioChunk();
@@ -232,7 +232,6 @@ class AudioHandler {
             // 發生錯誤時的回調
             audioElement.onerror = (e) => {
                 console.error('音頻播放錯誤:', e);
-                URL.revokeObjectURL(audioUrl);
                 audioElement.remove();
                 // 繼續嘗試下一個
                 this.playNextAudioChunk();
@@ -242,9 +241,17 @@ class AudioHandler {
             const container = document.getElementById('auto-play-container');
             container.appendChild(audioElement);
 
+            // 調試信息
+            console.log('開始播放WAV音頻片段，數據長度:', audioBase64.length);
+
             // 播放音頻
             await audioElement.play().catch(e => {
                 console.warn('流式音頻播放失敗:', e);
+                // 如果是自動播放被阻止的錯誤，試著創建一個播放按鈕
+                if (e.name === 'NotAllowedError') {
+                    console.log('自動播放被阻止，創建播放按鈕');
+                    this.createPlayButton(audioSrc, container);
+                }
                 // 繼續下一個
                 setTimeout(() => this.playNextAudioChunk(), 100);
             });

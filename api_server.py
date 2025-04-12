@@ -16,6 +16,7 @@ import time
 import soundfile as sf
 import queue
 from starlette.responses import Response
+import numpy as np
 # 配置日誌
 logging.basicConfig(
     level=logging.INFO,
@@ -133,21 +134,40 @@ async def tts_stream():
                     audio_data = tts_manager.get_next_audio(timeout=0.5)
                     
                     if audio_data is not None and len(audio_data) > 0:
-                        # 將音頻數據轉換為字節
-                        audio_bytes = audio_data.tobytes()
-                        
-                        # 使用Base64編碼音頻數據
-                        encoded_audio = base64.b64encode(audio_bytes).decode('utf-8')
-                        
-                        # 發送音頻數據
-                        message = json.dumps({"audio": encoded_audio})
-                        yield f"event: audio\ndata: {message}\n\n"
-                        sent_audio_count += 1
-                        print(f"接收到音頻數據: {len(audio_bytes)} 字節 (總計: {sent_audio_count} 個片段)")
-                        
-                        # 重置空閒計數器
-                        idle_count = 0
-                        last_audio_time = time.time()
+                        try:
+                            # 創建臨時WAV文件
+                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                temp_wav_path = temp_wav.name
+                                
+                            # 使用soundfile保存為WAV（與test_kokoro.py相同的方法）
+                            sf.write(temp_wav_path, audio_data, tts_manager.sample_rate)
+                            
+                            # 讀取WAV文件
+                            with open(temp_wav_path, 'rb') as wav_file:
+                                wav_data = wav_file.read()
+                                
+                            # 使用Base64編碼WAV數據
+                            encoded_audio = base64.b64encode(wav_data).decode('utf-8')
+                            
+                            # 清理臨時文件
+                            try:
+                                os.remove(temp_wav_path)
+                            except Exception as clean_err:
+                                print(f"清理臨時文件出錯: {str(clean_err)}")
+                            
+                            # 發送完整的WAV文件（包括頭信息）
+                            message = json.dumps({"audio": encoded_audio})
+                            yield f"event: audio\ndata: {message}\n\n"
+                            sent_audio_count += 1
+                            print(f"發送WAV音頻數據: 長度 {len(wav_data)} 字節 (總計: {sent_audio_count} 個片段)")
+                            
+                            # 重置空閒計數器
+                            idle_count = 0
+                            last_audio_time = time.time()
+                        except Exception as conv_err:
+                            print(f"音頻轉換出錯: {str(conv_err)}")
+                            import traceback
+                            print(traceback.format_exc())
                         
                         # 在音頻片段之間添加短暫延遲，確保平滑播放
                         await asyncio.sleep(0.05)
