@@ -154,10 +154,14 @@ class TTSManager:
         生成線程：將緩衝區中的文本轉換為語音，並將語音放入播放隊列
         """
         # 對全局持久化音頻緩衝區的引用
-        import sys
-        import importlib
-        api_server_module = importlib.import_module("api_server")
-        persistent_audio_buffer = getattr(api_server_module, "persistent_audio_buffer", None)
+        try:
+            # 嘗試從重構後的模塊導入
+            from src.api.routes import persistent_audio_buffer
+        except ImportError:
+            # 作為備選，創建一個本地的緩衝區（如果無法導入）
+            import queue
+            persistent_audio_buffer = queue.Queue(maxsize=20)
+            print("警告：使用本地持久化音頻緩衝區")
         
         while self.is_running:
             try:
@@ -258,58 +262,51 @@ class TTSManager:
         
         print("音頻播放線程結束")
     
-    def _should_process_buffer(self):
+    def _should_process_buffer(self) -> Optional[str]:
         """
-        判斷是否應該處理緩衝區中的文本，並只返回完整句子
-        同時從緩衝區中移除已處理的文本
+        檢查緩衝區是否應該被處理
+        返回應處理的文本，或None表示不應處理
         """
+        # 檢查緩衝區是否為空
         if not self.text_buffer:
-            return ""
+            return None
             
-        # 定義句子結束標點
-        sentence_end_marks = ['.', '!', '?']
+        # 檢查是否檢測到句子結束標點
+        sentence_end_marks = ['.', '!', '?', ':', ';']
         
-        # 如果緩衝區小於最小處理大小且沒有句子結束標點，則等待更多文本
-        if len(self.text_buffer) < self.min_buffer_size and not any(p in self.text_buffer for p in sentence_end_marks):
-            return ""
-        
-        # 如果緩衝區中有句子結束標點，則處理到最後一個句子結束標點
+        # 1. 如果緩衝區中有完整句子（以標點結尾），優先處理完整句子
         for mark in sentence_end_marks:
-            last_pos = self.text_buffer.rfind(mark)
-            if last_pos != -1:
-                # 確保包含句子結束標點
-                end_pos = last_pos + 1
-                
-                # 檢查是否應該包含更多文本
-                if end_pos < len(self.text_buffer) - 1:
-                    # 如果句子結束標點後面還有空格或其他標點，也包含進去
-                    next_char = self.text_buffer[end_pos:end_pos+1]
-                    if next_char.isspace() or next_char in [',', ';', ':', '\n']:
-                        end_pos += 1
-                
-                # 獲取要處理的文本
-                text_to_process = self.text_buffer[:end_pos]
-                
-                # 從緩衝區中移除已處理的文本
-                self.text_buffer = self.text_buffer[end_pos:]
-                
-                print(f"處理文本: '{text_to_process}', 剩餘緩衝區: '{self.text_buffer}'")
+            index = self.text_buffer.rfind(mark)
+            if index > 0 and len(self.text_buffer) > self.min_buffer_size: # 找到了句子結尾標點
+                # 提取到這個標點為止的所有文本（包含標點）
+                text_to_process = self.text_buffer[:index+1].strip()
+                # 保留剩餘文本在緩衝區中
+                self.text_buffer = self.text_buffer[index+1:].strip()
+                print(f"檢測到完整句子，提取處理: '{text_to_process}'，保留在緩衝區: '{self.text_buffer}'")
                 return text_to_process
         
-        # 如果沒有句子結束標點但緩衝區已經很大，則強制處理
-        if len(self.text_buffer) > self.min_buffer_size:
-            # 在強制處理前添加句號，確保生成完整的音頻
-            text_to_process = self.text_buffer
-            # if not any(text_to_process.endswith(mark) for mark in sentence_end_marks):
-            #     text_to_process += "."
-            #     print(f"緩衝區無句子結束標點，添加句號到文本末尾")
+        # 2. 如果緩衝區超過最小大小，但沒有完整句子，則需要判斷是否適合處理
+        # if len(self.text_buffer) > self.min_buffer_size:
+        #     # 查找最後一個空格，作為可能的斷句點
+        #     last_space_index = self.text_buffer.rfind(' ')
             
-            self.text_buffer = ""
-            print(f"緩衝區已達到 {len(text_to_process)} 字符 MIN_BUFFER_SIZE: {self.min_buffer_size}，強制處理整個緩衝區")
-            return text_to_process
-        
-        # 如果不符合上述條件，則不處理
-        return ""
+        #     # 如果找到空格，並且有足夠的內容
+        #     if last_space_index > 0 and last_space_index > self.min_buffer_size / 2:
+        #         # 提取到最後一個空格為止的所有文本
+        #         text_to_process = self.text_buffer[:last_space_index].strip()
+        #         # 保留剩餘文本在緩衝區中
+        #         self.text_buffer = self.text_buffer[last_space_index:].strip()
+        #         print(f"緩衝區達到閾值，以空格為界處理: '{text_to_process}'，保留在緩衝區: '{self.text_buffer}'")
+        #         return text_to_process
+        #     else:
+        #         # 緩衝區很大，但沒有找到合適的斷句點，此時需要全部處理
+        #         text_to_process = self.text_buffer.strip()
+        #         self.text_buffer = ""
+        #         print(f"緩衝區達到閾值，無合適斷句點，處理全部: '{text_to_process}'")
+        #         return text_to_process
+                
+        # 緩衝區尚未達到處理閾值
+        return None
     
     def _filter_special_tokens(self, text: str) -> str:
         """過濾特殊標記、URL和Markdown格式符號"""
@@ -339,14 +336,55 @@ class TTSManager:
         # 過濾特殊標記、URL和Markdown格式
         text = self._filter_special_tokens(text)
         
-        # 移除多餘的空格
-        # text = re.sub(r'\s+', ' ', text)
+        # 在處理前保存原始的文本，用於偵錯
+        original_text = text
+        
+        # 保護所有撇號相關的結構，不只是"單個字母+撇號+單個字母"的形式
+        # 包括：I'm, you're, don't, can't, he's等多種縮寫形式
+        protected_text = text
+        # 處理像it's, that's這樣的縮寫
+        protected_text = re.sub(r"(\w+)'(\w+)", r"\1_APOSTROPHE_\2", protected_text)
+        # 處理像I'm, I'll這樣的縮寫
+        protected_text = re.sub(r"(\w+)'(\w+)", r"\1_APOSTROPHE_\2", protected_text)
+        # 處理像don't, can't這樣的縮寫
+        protected_text = re.sub(r"(\w+)'(\w+)", r"\1_APOSTROPHE_\2", protected_text)
+        
+        # 保護破折號和其他可能被誤處理的符號
+        protected_text = protected_text.replace("–", "_ENDASH_")
+        protected_text = protected_text.replace("—", "_EMDASH_")
+        protected_text = protected_text.replace("-", "_HYPHEN_")
+        
+        # 保護標點符號，避免在標點前後添加多餘空格
+        for punct in [',', '.', '!', '?', ':', ';']:
+            protected_text = protected_text.replace(punct, f"_PUNCT_{punct}_")
+        
+        # 移除多餘的空格（用單個空格替換所有連續空格）
+        protected_text = re.sub(r'\s+', ' ', protected_text)
+        
+        # 恢復所有保護的標記
+        # 先恢復標點，確保標點前無空格
+        for punct in [',', '.', '!', '?', ':', ';']:
+            protected_text = protected_text.replace(f" _PUNCT_{punct}_", f"{punct}")  # 移除標點前的空格
+            protected_text = protected_text.replace(f"_PUNCT_{punct}_", f"{punct}")   # 處理其他情況
+        
+        # 恢復所有縮寫詞中的撇號
+        result_text = protected_text.replace("_APOSTROPHE_", "'")
+        
+        # 恢復破折號和連字符
+        result_text = result_text.replace("_ENDASH_", "–")
+        result_text = result_text.replace("_EMDASH_", "—")
+        result_text = result_text.replace("_HYPHEN_", "-")
         
         # 移除前後空格
-        # text = text.strip()
+        result_text = result_text.strip()
         
-        return text
+        # 如果處理後的文本與原始文本有明顯差異，記錄一下以便調試
+        if result_text.replace(" ", "") != original_text.replace(" ", ""):
+            print(f"文本預處理前: '{original_text}'")
+            print(f"文本預處理後: '{result_text}'")
         
+        return result_text
+    
     def _generate_audio_internal(self, text: str) -> np.ndarray:
         """
         內部方法：生成音頻數據
@@ -368,12 +406,7 @@ class TTSManager:
                 print("⚠️ 預處理後文本為空，跳過音頻生成")
                 return np.array([])
             
-            # 確保文本以句子結束標點結尾
-            sentence_end_marks = ['.', '!', '?']
-            if not any(processed_text.strip().endswith(mark) for mark in sentence_end_marks):
-                processed_text = processed_text.strip() + "."
-                print(f"添加句號到文本末尾: '{processed_text}'")
-                
+            # 移除強制添加句號的邏輯，保留文本原狀
             print(f"開始為文本生成音頻: '{processed_text[:50]}'{'...' if len(processed_text) > 50 else ''}")
             
             # 使用KPipeline生成音頻
@@ -390,7 +423,7 @@ class TTSManager:
                     print("使用位置參數調用pipeline")
                     generator = self.pipeline(processed_text, self.voice_tensor, self.speed)
                 
-                # 收集音頻片段
+                # 收集音頻
                 for _, _, audio in generator:
                     all_audio.append(audio)
                 
@@ -446,8 +479,8 @@ class TTSManager:
         print(f"添加文本到緩衝區: '{text}' (緩衝區當前大小: {len(self.text_buffer)} 字符)")
         
         # 確保文本結尾有適當的空格，以避免句子連在一起
-        if not self.text_buffer.endswith((' ', '\n', '.', '!', '?', ',', ';', ':')):
-            self.text_buffer += ' '
+        # if not self.text_buffer.endswith((' ', '\n', '.', '!', '?', ',', ';', ':')):
+        #     self.text_buffer += ' '
         
         # 檢查是否有句子結束標點
         if any(p in text for p in ['.', '!', '?']):
@@ -456,48 +489,50 @@ class TTSManager:
             self.force_process()
     
     def force_process(self) -> None:
-        """強制處理當前緩衝區中的所有文本"""
-        # 對全局持久化音頻緩衝區的引用
-        import sys
-        import importlib
-        api_server_module = importlib.import_module("api_server")
-        persistent_audio_buffer = getattr(api_server_module, "persistent_audio_buffer", None)
-        
-        if not self.text_buffer:
-            print("⚠️ 緩衝區為空，無需強制處理")
-            return
-            
-        print(f"🔄 強制處理緩衝區中的 {len(self.text_buffer)} 字符文本: '{self.text_buffer}'")
-        temp_buffer = self.text_buffer
-        self.text_buffer = ""  # 清空緩衝區
-        
-        # 生成音頻並添加到隊列
+        """強制處理當前緩衝區中的文本，不管緩衝區大小"""
+        # 從routes導入持久化緩衝區
         try:
-            audio_data = self._generate_audio_internal(temp_buffer)
-            if len(audio_data) > 0:
-                self.audio_queue.put(audio_data.copy())  # 使用copy避免引用問題
-                
-                # 同時將音頻放入持久化緩衝區
-                if persistent_audio_buffer is not None:
-                    try:
-                        # 如果緩衝區已滿，先移除舊的數據
-                        if persistent_audio_buffer.full():
-                            try:
-                                persistent_audio_buffer.get_nowait()
-                            except:
-                                pass
-                        persistent_audio_buffer.put(audio_data.copy())
-                        print(f"✅ 音頻已添加到持久化緩衝區，緩衝區大小: {persistent_audio_buffer.qsize()}")
-                    except Exception as e:
-                        print(f"❌ 添加到持久化緩衝區出錯: {str(e)}")
-                
-                print(f"✅ 強制處理完成，音頻長度: {len(audio_data)} 樣本，隊列大小: {self.audio_queue.qsize()}")
-            else:
-                print("⚠️ 強制處理生成的音頻為空")
-        except Exception as e:
-            print(f"❌ 強制處理緩衝區時出錯: {str(e)}")
-            import traceback
-            print(traceback.format_exc())
+            from src.api.routes import persistent_audio_buffer
+        except ImportError:
+            # 作為備選，創建一個本地的緩衝區（如果無法導入）
+            import queue
+            persistent_audio_buffer = queue.Queue(maxsize=20)
+            print("警告：使用本地持久化音頻緩衝區")
+            
+        if len(self.text_buffer) > 0:
+            text_to_process = self.text_buffer
+            self.text_buffer = ""
+            
+            # 移除強制添加句號的邏輯，保留文本原樣
+            print(f"🔄 強制處理緩衝區中的 {len(text_to_process)} 字符文本: '{text_to_process}'")
+            
+            # 生成音頻並添加到隊列
+            try:
+                audio_data = self._generate_audio_internal(text_to_process)
+                if len(audio_data) > 0:
+                    self.audio_queue.put(audio_data.copy())  # 使用copy避免引用問題
+                    
+                    # 同時將音頻放入持久化緩衝區
+                    if persistent_audio_buffer is not None:
+                        try:
+                            # 如果緩衝區已滿，先移除舊的數據
+                            if persistent_audio_buffer.full():
+                                try:
+                                    persistent_audio_buffer.get_nowait()
+                                except:
+                                    pass
+                            persistent_audio_buffer.put(audio_data.copy())
+                            print(f"✅ 音頻已添加到持久化緩衝區，緩衝區大小: {persistent_audio_buffer.qsize()}")
+                        except Exception as e:
+                            print(f"❌ 添加到持久化緩衝區出錯: {str(e)}")
+                    
+                    print(f"✅ 強制處理完成，音頻長度: {len(audio_data)} 樣本，隊列大小: {self.audio_queue.qsize()}")
+                else:
+                    print("⚠️ 強制處理生成的音頻為空")
+            except Exception as e:
+                print(f"❌ 強制處理緩衝區時出錯: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
     
     def save_audio(self, text: str, file_path: str) -> bool:
         """
@@ -620,6 +655,54 @@ class TTSManager:
             pass
             
         print("✅ TTS管理器已關閉")
+
+    def cleanup(self) -> None:
+        """
+        清理TTS管理器的資源，停止線程並釋放模型記憶體
+        應在應用程序關閉時調用
+        """
+        print("開始清理TTS管理器資源...")
+        
+        # 停止工作線程
+        self.is_running = False
+        if self.generator_thread and self.generator_thread.is_alive():
+            print("等待生成線程停止...")
+            # 添加一個小段文本以解除任何可能的阻塞
+            self.add_text("cleanup")
+            self.generator_thread.join(timeout=5)
+            if self.generator_thread.is_alive():
+                print("警告：生成線程未能在超時時間內停止")
+        
+        # 清空隊列
+        try:
+            while not self.audio_queue.empty():
+                self.audio_queue.get_nowait()
+                self.audio_queue.task_done()
+        except:
+            pass
+        
+        # 清空文本緩衝區
+        self.text_buffer = ""
+        
+        # 釋放模型（如果可能）
+        if hasattr(self, 'pipeline') and self.pipeline is not None:
+            print("釋放TTS模型資源...")
+            try:
+                # 嘗試使用常見的模型釋放方法
+                if hasattr(self.pipeline, 'to'):
+                    self.pipeline.to('cpu')
+                
+                # 釋放CUDA緩存
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                
+                # 設置為None以幫助垃圾回收
+                self.pipeline = None
+                self.voice_tensor = None
+            except Exception as e:
+                print(f"釋放TTS模型資源時出錯: {str(e)}")
+        
+        print("TTS管理器資源清理完成")
 
     def __del__(self):
         """析構函數"""
