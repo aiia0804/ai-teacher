@@ -106,14 +106,6 @@ hr {
     margin-top: 20px;
 }
 
-#transcript-editor {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 5px;
-    margin-top: 10px;
-    resize: vertical;
-}
 
 .realtime-response {
     min-height: 50px;
@@ -198,6 +190,7 @@ hr {
 }
 
 .record-btn {
+    margin-top: 10px;
     background-color: #dc3545;
     color: white;
     padding: 12px 20px;
@@ -227,6 +220,23 @@ hr {
     100% {
         box-shadow: 0 0 0 0 rgba(220, 53, 69, 0);
     }
+}
+
+/* 錄音狀態樣式 */
+.recording-status {
+    margin-top: 10px;
+    font-size: 0.9rem;
+    color: #666;
+    font-style: italic;
+    min-height: 20px;
+    text-align: center;
+}
+
+.recording-status:not(:empty) {
+    padding: 5px 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid var(--primary-color);
 }
 
 /* 場景選擇器 */
@@ -313,6 +323,48 @@ hr {
 .voice-accent-uk::before {
     content: "🇬🇧";
     margin-right: 5px;
+}
+
+/* 語言選擇器 */
+.language-selector {
+    margin: 20px 0;
+    padding: 12px;
+    background-color: #f5f5f5;
+    border-radius: 8px;
+    border-left: 3px solid #4CAF50;
+}
+
+.language-selector label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+.language-selector select {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background-color: white;
+    font-size: 0.95rem;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23464646' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+}
+
+.language-selector select:focus {
+    outline: none;
+    border-color: #4CAF50;
+    box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.1);
+}
+
+/* 不同語言的標記 */
+.language-flag {
+    margin-right: 5px;
+    vertical-align: middle;
 }
 
 /* 發音反饋樣式 */
@@ -406,6 +458,7 @@ hr {
     
     /* 確保錄音按鈕在手機上足夠大，易於點擊 */
     .record-btn {
+        margin-top: 10px;
         width: 100%;
         padding: 15px;
         font-size: 1.1em;

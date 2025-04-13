@@ -3,119 +3,118 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>英語對話AI教師</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title data-i18n="app_title">英語對話AI教師</title>
+    <link rel="stylesheet" href="css/style.css?v=1.0.5">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
     <div class="container">
         <!-- 側邊欄 -->
         <div class="sidebar">
-            <h2>設置</h2>
+            <h2 data-i18n="settings">設置</h2>
 
-            <h3>使用方法</h3>
+            <!-- 語言選擇器 -->
+            <div class="language-selector">
+                <label for="language-select" data-i18n="language_select">選擇語言:</label>
+                <select id="language-select" class="form-control">
+                    <option value="zh-TW">繁體中文</option>
+                    <option value="ja">日本語</option>
+                    <option value="en">English</option>
+                </select>
+            </div>
+
+            <h3 data-i18n="instructions">使用方法</h3>
             <div class="instructions">
                 <ol>
-                    <li>點擊「開始錄音」按鈕說話</li>
-                    <li>錄音完成後會自動轉錄並發送</li>
-                    <li>可以使用「檢查發音」功能評估你的發音</li>
-                    <li>使用「重置對話」開始新的對話</li>
+                    <li data-i18n="instruction_1">點擊「開始錄音」按鈕說話</li>
+                    <li data-i18n="instruction_2">錄音完成後會自動轉錄並發送</li>
+                    <li data-i18n="instruction_3">可以使用「檢查發音」功能評估你的發音</li>
+                    <li data-i18n="instruction_4">使用「重置對話」開始新的對話</li>
                 </ol>
             </div>
 
             <hr>
 
-            <button id="reset-button" class="btn primary-btn">重置對話</button>
+            <button id="reset-button" class="btn primary-btn" data-i18n="reset_button">重置對話</button>
         </div>
 
         <!-- 主要內容區 -->
         <div class="main-content">
             <!-- 聊天區域 -->
             <div class="chat-area">
-                <h2>對話區域</h2>
-                <div id="chat-container" class="chat-container"></div>
-
-                <hr>
-
-                <div class="input-area">
-                    <div id="transcript-container" style="display: none;">
-                        <label for="transcript-editor">編輯或確認轉錄文本:</label>
-                        <textarea id="transcript-editor" rows="4"></textarea>
-                    </div>
-                    <div id="realtime-response" class="realtime-response"></div>
+                <div class="chat-container" id="chat-container">
+                    <!-- 訊息會在這裡動態生成 -->
                 </div>
             </div>
 
             <!-- 控制面板 -->
             <div class="control-panel">
-                <h2>控制面板</h2>
-
-                <div class="recorder-container">
-                    <button id="record-button" class="btn record-btn">
-                        <i class="fas fa-microphone"></i> 開始錄音
-                    </button>
-                    <p id="recording-status"></p>
-                </div>
-
-                <div id="audio-player-container" style="display: none;">
-                    <audio id="audio-player" controls></audio>
-                </div>
-
-                <div class="control-buttons">
-                    <!-- 隱藏未完成功能按鈕 -->
-                    <div class="button-row" style="display: none;">
-                        <button id="play-button" class="btn secondary-btn" disabled>播放錄音</button>
-                        <button id="pronunciation-button" class="btn secondary-btn" disabled>檢查發音</button>
-                    </div>
+                
+                <div class="button-row">
+                    <button id="record-button" class="btn record-btn" data-i18n="record_button">開始錄音</button>
                     
+                    <!-- 錄音狀態顯示 -->
+                    <div id="recording-status" class="recording-status"></div>
+                    
+                    <!-- 暫時隱藏這些按鈕，直到功能完成 -->
+                    <!--
+                    <button id="play-audio-button" class="btn secondary-btn">播放錄音</button>
+                    <button id="check-pronunciation-button" class="btn secondary-btn">檢查發音</button>
+                    -->
+                </div>
+                
+                <div class="pronunciation-feedback" id="pronunciation-feedback">
+                    <!-- 發音反饋會顯示在這裡 -->
+                </div>
+                
+                <div id="realtime-response">
+                    <!-- 即時回應會顯示在這裡 -->
+                </div>
+                
+                <div class="controls">
                     <!-- 場景選擇下拉選單 -->
                     <div class="scenario-selector">
-                        <label for="scenario-select"><i class="fas fa-theater-masks scenario-icon"></i>選擇對話場景:</label>
+                        <label for="scenario-select"><i class="fas fa-theater-masks scenario-icon"></i><span data-i18n="select_scenario">選擇對話場景:</span></label>
                         <select id="scenario-select" class="form-control">
-                            <option value="general">一般對話</option>
-                            <option value="restaurant">餐廳點餐</option>
-                            <option value="shopping">購物情境</option>
-                            <option value="airport_customs">機場海關</option>
-                            <option value="hotel_checkin">旅館入住</option>
-                            <option value="doctor_visit">看醫生</option>
-                            <option value="job_interview">工作面試</option>
-                            <option value="public_transport">公共交通</option>
+                            <option value="general" data-i18n="general">一般對話</option>
+                            <option value="restaurant" data-i18n="restaurant">餐廳點餐</option>
+                            <option value="shopping" data-i18n="shopping">購物情境</option>
+                            <option value="airport_customs" data-i18n="airport_customs">機場海關</option>
+                            <option value="hotel_checkin" data-i18n="hotel_checkin">旅館入住</option>
+                            <option value="doctor_visit" data-i18n="doctor_visit">看醫生</option>
+                            <option value="job_interview" data-i18n="job_interview">工作面試</option>
+                            <option value="public_transport" data-i18n="public_transport">公共交通</option>
                         </select>
-                        <div class="scenario-hint">選擇一個情境來練習特定場合的英語對話</div>
+                        <div class="scenario-hint" data-i18n="scenario_hint">選擇一個情境來練習特定場合的英語對話</div>
                     </div>
                     
                     <!-- 語音選擇下拉選單 -->
                     <div class="scenario-selector voice-selector">
-                        <label for="voice-select"><i class="fas fa-microphone-alt scenario-icon"></i>選擇語音:</label>
+                        <label for="voice-select"><i class="fas fa-microphone-alt scenario-icon"></i><span data-i18n="select_voice">選擇語音:</span></label>
                         <select id="voice-select" class="form-control">
-                            <option value="af_heart.pt">標準美式女性 (默認)</option>
-                            <option value="am_adam.pt">帥氣美式男性</option>
-                            <option value="am_michael.pt">標準美式男性</option>
-                            <option value="bf_lily.pt">標準英式女性</option>
-                            <option value="bm_george.pt">標準英式男性</option>
-                            <option value="af_nicole.pt">悄悄話美式女性</option>
+                            <option value="af_heart.pt" data-i18n="voice_us_female">標準美式女性 (默認)</option>
+                            <option value="am_adam.pt" data-i18n="voice_us_male_cool">帥氣美式男性</option>
+                            <option value="am_michael.pt" data-i18n="voice_us_male">標準美式男性</option>
+                            <option value="bf_lily.pt" data-i18n="voice_uk_female">標準英式女性</option>
+                            <option value="bm_george.pt" data-i18n="voice_uk_male">標準英式男性</option>
+                            <option value="af_nicole.pt" data-i18n="voice_us_female_soft">悄悄話美式女性</option>
                         </select>
-                        <div class="scenario-hint">選擇您想聽的AI英語教師的口音和聲音</div>
+                        <div class="scenario-hint" data-i18n="voice_hint">選擇您想聽的AI英語教師的口音和聲音</div>
                     </div>
                     
-                    <button id="submit-button" class="btn primary-btn" disabled>手動送出</button>
+                    <button id="submit-button" class="btn primary-btn" disabled data-i18n="send_button">手動送出</button>
                 </div>
-
-                <hr>
-
-                <p>與AI老師對話，練習你的英語口語能力！</p>
-
-                <div id="pronunciation-feedback" class="pronunciation-feedback"></div>
             </div>
         </div>
     </div>
 
-    <!-- 自動播放音頻的容器 -->
+    <!-- 自動播放容器 -->
     <div id="auto-play-container"></div>
 
     <!-- JavaScript 文件 -->
-    <script src="js/api-service.js?v=1.0.3"></script>
-    <script src="js/audio-handler.js?v=1.0.3"></script>
-    <script src="js/app.js?v=1.0.3"></script>
+    <script src="js/i18n.js?v=1.0.0"></script>
+    <script src="js/api-service.js?v=1.0.4 "></script>
+    <script src="js/audio-handler.js?v=1.0.4"></script>
+    <script src="js/app.js?v=1.0.4"></script>
 </body>
 </html>

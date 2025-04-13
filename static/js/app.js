@@ -1,7 +1,7 @@
 /**
  * 主應用程序模塊 - 處理UI和業務邏輯
  */
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', function() {
     // 初始化變數
     let transcript = '';
     let isTranscribing = false;
@@ -10,14 +10,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 獲取UI元素
     const recordButton = document.getElementById('record-button');
-    const playButton = document.getElementById('play-button');
+    const playButton = document.getElementById('play-audio-button'); // 更新ID
     const submitButton = document.getElementById('submit-button');
-    const pronunciationButton = document.getElementById('pronunciation-button');
+    const pronunciationButton = document.getElementById('check-pronunciation-button'); // 更新ID
     const resetButton = document.getElementById('reset-button');
     const recordingStatus = document.getElementById('recording-status');
     const chatContainer = document.getElementById('chat-container');
     const transcriptContainer = document.getElementById('transcript-container');
-    const transcriptEditor = document.getElementById('transcript-editor');
     const realtimeResponse = document.getElementById('realtime-response');
     const pronunciationFeedback = document.getElementById('pronunciation-feedback');
     const scenarioSelect = document.getElementById('scenario-select');
@@ -28,6 +27,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 設置事件監聽器
     setupEventListeners();
+
+    // 初始化國際化
+    if (window.i18n) {
+        window.i18n.initLanguage();
+        
+        // 設置語言選擇器事件監聽
+        const languageSelect = document.getElementById('language-select');
+        if (languageSelect) {
+            // 設置當前語言
+            languageSelect.value = window.i18n.currentLanguage();
+            
+            // 語言更改事件
+            languageSelect.addEventListener('change', function() {
+                window.i18n.setLanguage(this.value);
+                console.log(`已更改語言為: ${this.value}`);
+            });
+        }
+    }
 
     /**
      * 初始化音頻環境
@@ -153,33 +170,35 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 播放按鈕
-        playButton.addEventListener('click', () => {
-            const audioBlob = audioHandler.getAudioBlob();
-            if (audioBlob) {
-                audioHandler.playAudio(audioBlob);
-            }
-        });
+        if (playButton) {
+            playButton.addEventListener('click', () => {
+                const audioBlob = audioHandler.getAudioBlob();
+                if (audioBlob) {
+                    audioHandler.playAudio(audioBlob);
+                }
+            });
+        }
 
         // 提交按鈕
-        submitButton.addEventListener('click', () => {
-            submitMessage();
-        });
+        if (submitButton) {
+            submitButton.addEventListener('click', () => {
+                submitMessage();
+            });
+        }
 
         // 發音檢查按鈕
-        pronunciationButton.addEventListener('click', () => {
-            checkPronunciation();
-        });
+        if (pronunciationButton) {
+            pronunciationButton.addEventListener('click', () => {
+                checkPronunciation();
+            });
+        }
 
         // 重置按鈕
-        resetButton.addEventListener('click', () => {
-            resetConversation();
-        });
-
-        // 轉錄文本編輯器變更
-        transcriptEditor.addEventListener('input', () => {
-            transcript = transcriptEditor.value;
-            updateButtonStates();
-        });
+        if (resetButton) {
+            resetButton.addEventListener('click', () => {
+                resetConversation();
+            });
+        }
 
         // 場景選擇
         if (scenarioSelect) {
@@ -218,15 +237,18 @@ document.addEventListener('DOMContentLoaded', () => {
             isTranscribing = true;
 
             // 更新UI
-            playButton.disabled = false;
+            if (playButton) {
+                playButton.disabled = false;
+            }
 
             // 發送到API進行轉錄
             const text = await apiService.speechToText(audioBlob);
 
             if (text) {
                 transcript = text;
-                transcriptEditor.value = text;
-                transcriptContainer.style.display = 'block';
+                if (transcriptContainer) {
+                    transcriptContainer.style.display = 'block';
+                }
                 recordingStatus.textContent = '轉錄成功！';
 
                 // 啟用按鈕
@@ -250,8 +272,12 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function updateButtonStates() {
         const hasAudioAndTranscript = audioHandler.getAudioBlob() && transcript;
-        submitButton.disabled = !transcript;
-        pronunciationButton.disabled = !hasAudioAndTranscript;
+        if (submitButton) {
+            submitButton.disabled = !transcript;
+        }
+        if (pronunciationButton) {
+            pronunciationButton.disabled = !hasAudioAndTranscript;
+        }
     }
 
     /**
@@ -268,7 +294,9 @@ document.addEventListener('DOMContentLoaded', () => {
             apiService.addMessage('user', transcript);
 
             // 清空輸入
-            transcriptContainer.style.display = 'none';
+            if (transcriptContainer) {
+                transcriptContainer.style.display = 'none';
+            }
 
             // 清空之前的音頻隊列
             audioHandler.clearAudioQueue();
@@ -302,7 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
             // 重置轉錄
             transcript = '';
-            transcriptEditor.value = '';
 
             // 更新按鈕狀態
             updateButtonStates();
@@ -328,8 +355,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             // 顯示加載中
-            pronunciationFeedback.innerHTML = '<p>正在評估發音...</p>';
-            pronunciationFeedback.style.display = 'block';
+            if (pronunciationFeedback) {
+                pronunciationFeedback.innerHTML = '<p>正在評估發音...</p>';
+                pronunciationFeedback.style.display = 'block';
+            }
 
             // 發送到API進行評估
             const result = await apiService.evaluatePronunciation(audioBlob, transcript);
@@ -339,7 +368,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         } catch (error) {
             console.error('檢查發音時出錯:', error);
-            pronunciationFeedback.innerHTML = `<p>發音評估失敗: ${error.message}</p>`;
+            if (pronunciationFeedback) {
+                pronunciationFeedback.innerHTML = `<p>發音評估失敗: ${error.message}</p>`;
+            }
         }
     }
 
@@ -349,7 +380,9 @@ document.addEventListener('DOMContentLoaded', () => {
      */
     function displayPronunciationFeedback(result) {
         if (!result || !result.success) {
-            pronunciationFeedback.innerHTML = '<p>無法獲取發音評估結果</p>';
+            if (pronunciationFeedback) {
+                pronunciationFeedback.innerHTML = '<p>無法獲取發音評估結果</p>';
+            }
             return;
         }
 
@@ -376,16 +409,17 @@ document.addEventListener('DOMContentLoaded', () => {
             suggestionsHtml += '</ul></div>';
         }
 
-        pronunciationFeedback.innerHTML = `
-            <h3>發音評估結果</h3>
-            <div class="pronunciation-score ${scoreClass}">
-                準確度: ${scoreText}%
-            </div>
-            ${detailsHtml}
-            ${suggestionsHtml}
-        `;
-
-        pronunciationFeedback.style.display = 'block';
+        if (pronunciationFeedback) {
+            pronunciationFeedback.innerHTML = `
+                <h3>發音評估結果</h3>
+                <div class="pronunciation-score ${scoreClass}">
+                    準確度: ${scoreText}%
+                </div>
+                ${detailsHtml}
+                ${suggestionsHtml}
+            `;
+            pronunciationFeedback.style.display = 'block';
+        }
     }
 
     /**
@@ -401,10 +435,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const formattedContent = formatMessage(content);
 
         messageDiv.innerHTML = formattedContent;
-        chatContainer.appendChild(messageDiv);
+        if (chatContainer) {
+            chatContainer.appendChild(messageDiv);
+        }
 
         // 滾動到底部
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
     }
 
     /**
@@ -412,12 +450,16 @@ document.addEventListener('DOMContentLoaded', () => {
      * @param {string} id - 消息ID
      */
     function displayLoadingMessage(id) {
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'chat-message bot loading';
-        loadingDiv.id = id;
-        loadingDiv.innerHTML = '<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span>';
-        chatContainer.appendChild(loadingDiv);
-        chatContainer.scrollTop = chatContainer.scrollHeight;
+        const loadingMessage = document.createElement('div');
+        loadingMessage.id = id;
+        loadingMessage.className = 'chat-message bot-message loading';
+        loadingMessage.innerHTML = `<div class="message-content"><p>${window.i18n ? window.i18n.t('loading') : '載入中...'}</p></div>`;
+        if (chatContainer) {
+            chatContainer.appendChild(loadingMessage);
+        }
+        if (chatContainer) {
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
     }
 
     /**
@@ -466,21 +508,26 @@ document.addEventListener('DOMContentLoaded', () => {
         apiService.resetConversation();
 
         // 清空聊天容器
-        chatContainer.innerHTML = '';
+        if (chatContainer) {
+            chatContainer.innerHTML = '';
+        }
 
         // 重置UI
         transcript = '';
-        transcriptEditor.value = '';
-        transcriptContainer.style.display = 'none';
-        pronunciationFeedback.style.display = 'none';
+        if (transcriptContainer) {
+            transcriptContainer.style.display = 'none';
+        }
+        if (pronunciationFeedback) {
+            pronunciationFeedback.style.display = 'none';
+        }
 
         // 更新按鈕狀態
         updateButtonStates();
 
         // 添加歡迎消息
-        displayMessage('bot', '您好！我是您的英語對話AI教師。請說些什麼，我會幫助您練習英語口語。');
+        displayMessage('bot', window.i18n ? window.i18n.t('welcome_message') : '您好！我是您的英語對話AI教師。請說些什麼，我會幫助您練習英語口語。');
     }
 
     // 初始顯示歡迎消息
-    displayMessage('bot', '您好！我是您的英語對話AI教師。請說些什麼，我會幫助您練習英語口語。');
+    displayMessage('bot', window.i18n ? window.i18n.t('welcome_message') : '您好！我是您的英語對話AI教師。請說些什麼，我會幫助您練習英語口語。');
 });
