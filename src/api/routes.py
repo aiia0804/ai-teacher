@@ -209,7 +209,7 @@ async def chat(request: ChatRequest):
         # 獲取或創建對話歷史
         if request.conversation_id not in conversation_history:
             conversation_history[request.conversation_id] = []
-        
+        print(f"對話歷史: {conversation_history}")
         # 使用提供的上下文或已有的歷史記錄
         context = request.context if request.context else conversation_history[request.conversation_id]
         
@@ -248,7 +248,6 @@ async def chat(request: ChatRequest):
             messages.append(user_message)
         elif processed_context and processed_context[-1]["role"] == "user" and request.message:
             # 最後一條是user，合併請求消息
-            processed_context[-1]["content"] += "\n" + request.message
             messages.extend(processed_context)
             user_message = processed_context[-1]  # 用於後續更新對話歷史
         elif not processed_context:
@@ -263,7 +262,7 @@ async def chat(request: ChatRequest):
         
         # 使用流式生成，並即時發送到TTS
         logger.info(f"流式生成對話回應並即時TTS，情境: {scenario}")
-        
+
         full_response = ""
         for text_chunk in llm_manager.generate_stream(messages):
             # 累積響應
