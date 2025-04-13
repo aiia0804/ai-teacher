@@ -37,6 +37,109 @@ conversation_history = {}
 # 配置日誌
 logger = logging.getLogger("api")
 
+# 摘要最大長度
+SUMMARY_MAX_LENGTH = 100
+
+# 函數用於生成對話摘要
+async def generate_conversation_summary(messages: List[Dict[str, any]]) -> str:
+    """
+    使用LLM生成對話摘要
+    
+    Args:
+        messages: 要摘要的對話消息列表
+        
+    Returns:
+        摘要文本，控制在100個字符內
+    """
+    if not messages or len(messages) < 2:
+        return ""
+    
+    # 提取對話內容
+    conversation_text = ""
+    for msg in messages:
+        role = "User" if msg["role"] == "user" else "Teacher"
+        
+        # 處理不同的content結構
+        content = ""
+        if isinstance(msg["content"], str):
+            content = msg["content"]
+        elif isinstance(msg["content"], list):
+            # 處理content是字典列表的情況
+            for item in msg["content"]:
+                if isinstance(item, dict) and "text" in item:
+                    content += item["text"] + " "
+        
+        conversation_text += f"{role}: {content.strip()}\n"
+    
+    # 創建摘要提示
+    summary_prompt = f"""Summarize the following English learning conversation in 100 characters or less. 
+Focus ONLY on the key topics discussed and important language points:
+
+{conversation_text}
+
+Summary (100 chars max):"""
+    
+    # 使用LLM生成摘要
+    try:
+        summary = llm_manager.generate(summary_prompt, temperature=0.3, max_new_tokens=150)
+        
+        # 確保摘要不超過最大長度
+        if len(summary) > SUMMARY_MAX_LENGTH:
+            summary = summary[:SUMMARY_MAX_LENGTH-3] + "..."
+            
+        return summary
+    except Exception as e:
+        logger.error(f"生成摘要時出錯: {str(e)}")
+        return f"Previous conversation about English learning (summary generation failed)"
+
+# 函數用於優化對話歷史，保留重要部分，壓縮其他部分
+async def optimize_conversation_history(history: List[Dict[str, any]]) -> List[Dict[str, any]]:
+    """
+    優化對話歷史，將早期對話壓縮為摘要
+    
+    Args:
+        history: 完整的對話歷史
+        
+    Returns:
+        優化後的對話歷史
+    """
+
+    # 保留最近兩輪對話（4條消息）
+    recent_messages = history[-2:]
+    
+    # 需要摘要的早期對話
+    earlier_messages = history[:-2]
+    
+    if not earlier_messages:
+        return recent_messages
+    
+    # 記錄優化前後的token估計
+    tokens_before = sum(len(str(msg)) for msg in history) / 2  # 粗略估計
+    
+    # 生成早期對話的摘要
+    summary = await generate_conversation_summary(earlier_messages)
+    
+    if not summary:
+        return recent_messages
+    
+    # 創建包含摘要的系統消息
+    summary_message = {
+        "role": "system",
+        "content": f"Previous conversation summary: {summary}"
+    }
+    
+    # 計算優化後的token估計
+    optimized_history = [summary_message] + recent_messages
+    tokens_after = sum(len(str(msg)) for msg in optimized_history) / 2  # 粗略估計
+    
+    # 記錄token減少情況
+    reduction = tokens_before - tokens_after
+    reduction_percent = (reduction / tokens_before) * 100 if tokens_before > 0 else 0
+    logger.info(f"對話歷史優化: 從約 {tokens_before:.0f} tokens 減少到 {tokens_after:.0f} tokens (減少約 {reduction_percent:.1f}%)")
+    
+    # 返回包含摘要和最近對話的優化歷史
+    return optimized_history
+
 @router.get("/")
 async def api_status():
     """API健康檢查"""
@@ -209,9 +312,9 @@ async def chat(request: ChatRequest):
         # 獲取或創建對話歷史
         if request.conversation_id not in conversation_history:
             conversation_history[request.conversation_id] = []
-        print(f"對話歷史: {conversation_history}")
         # 使用提供的上下文或已有的歷史記錄
         context = request.context if request.context else conversation_history[request.conversation_id]
+
         
         # 準備消息
         messages = []
@@ -224,10 +327,16 @@ async def chat(request: ChatRequest):
         # 整理上下文確保交替的 user/assistant 格式
         processed_context = []
         last_role = None
-        
+
         for msg in context:
+            # 保留系統消息（包括摘要）
+            if msg["role"] == "system":
+                processed_context.append(msg)
+                continue
+                
+            # 處理用戶和助手消息
             if msg["role"] not in ["user", "assistant"]:
-                continue  # 跳過非user或assistant的角色
+                continue  # 跳過其他非標準角色
                 
             # 如果與上一條訊息角色相同，合併訊息
             if msg["role"] == last_role and last_role is not None and processed_context:
@@ -292,6 +401,24 @@ async def chat(request: ChatRequest):
                 {"role": "user", "content": request.message},
                 {"role": "assistant", "content": full_response}
             ]
+            
+        # 優化對話歷史，將早期對話生成摘要
+        current_history = conversation_history[request.conversation_id]
+        print(f"對話歷史: {current_history}")
+        # 調試信息
+        history_str = json.dumps(current_history, ensure_ascii=False)
+        logger.info(f"優化前對話歷史長度: {len(history_str)} 字符")
+        print(f"優化前對話歷史: {history_str[:200]}...")
+    
+        if len(current_history) > 4:  # 對話超過2輪時進行優化
+            optimized_history = await optimize_conversation_history(current_history)
+            conversation_history[request.conversation_id] = optimized_history
+            
+            # 調試信息
+            optimized_str = json.dumps(optimized_history, ensure_ascii=False)
+            logger.info(f"優化後對話歷史長度: {len(optimized_str)} 字符")
+            logger.info(f"已優化對話歷史，從 {len(current_history)} 條消息減少到 {len(optimized_history)} 條")
+            print(f"優化後對話歷史: {optimized_str[:200]}...")
         
         return ChatResponse(
             success=True,
