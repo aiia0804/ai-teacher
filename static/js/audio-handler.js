@@ -11,11 +11,66 @@ class AudioHandler {
         this.audioContext = null;
         this.SAMPLE_RATE = 16000;
         this.audioPermissionGranted = false;
+        this.lastInteractionTime = Date.now();
+        this.interactionTimeout = 60000; // 1分鐘後考慮可能需要重新獲取權限
 
         // 流式音頻相關
         this.streamingAudioChunks = [];
         this.isPlayingStreamingAudio = false;
         this.audioQueue = [];
+        
+        // 監聽用戶交互事件以保持音頻權限
+        this._setupInteractionListeners();
+    }
+
+    /**
+     * 設置用戶交互事件監聽器，用於維持音頻播放權限
+     * 特別是為Safari設計
+     */
+    _setupInteractionListeners() {
+        const interactionEvents = ['click', 'touchstart', 'keydown'];
+        
+        // 對於每個交互事件，更新最後交互時間並嘗試預激活音頻
+        interactionEvents.forEach(eventType => {
+            document.addEventListener(eventType, () => {
+                this.lastInteractionTime = Date.now();
+                this._tryActivateAudio();
+            }, { passive: true });
+        });
+    }
+
+    /**
+     * 嘗試預激活音頻上下文，為後續播放做準備
+     * 專門針對Safari的限制設計
+     */
+    _tryActivateAudio() {
+        // 創建一個短暫的靜音音頻並播放
+        // 這能夠在用戶交互時"激活"音頻權限
+        try {
+            if (!this.audioContext) {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            
+            // 創建一個微小的靜音音頻緩衝區
+            const silentBuffer = this.audioContext.createBuffer(1, 1, 22050);
+            const source = this.audioContext.createBufferSource();
+            source.buffer = silentBuffer;
+            source.connect(this.audioContext.destination);
+            source.start(0);
+            source.stop(0.001);
+            
+            console.log('音頻上下文預激活成功');
+        } catch (e) {
+            console.warn('音頻預激活失敗:', e);
+        }
+    }
+
+    /**
+     * 檢查音頻權限是否可能已過期
+     * @returns {boolean} - 是否需要重新獲取權限
+     */
+    _isPermissionLikelyExpired() {
+        return Date.now() - this.lastInteractionTime > this.interactionTimeout;
     }
 
     /**
@@ -209,6 +264,13 @@ class AudioHandler {
         this.isPlayingStreamingAudio = true;
 
         try {
+            // 在播放前檢查權限是否可能過期
+            if (this._isPermissionLikelyExpired()) {
+                console.log('音頻權限可能已過期，尋求用戶交互...');
+                this._showInteractionRequiredMessage();
+                return;
+            }
+
             // 取出下一個Base64音頻數據
             const audioBase64 = this.audioQueue.shift();
             
@@ -233,6 +295,15 @@ class AudioHandler {
             audioElement.onerror = (e) => {
                 console.error('音頻播放錯誤:', e);
                 audioElement.remove();
+                
+                // 處理權限錯誤
+                if (e.target && e.target.error && e.target.error.name === 'NotAllowedError') {
+                    console.warn('播放被阻止，需要用戶交互');
+                    this.audioQueue = []; // 清空隊列避免多次錯誤
+                    this._showInteractionRequiredMessage();
+                    return;
+                }
+                
                 // 繼續嘗試下一個
                 this.playNextAudioChunk();
             };
@@ -247,13 +318,16 @@ class AudioHandler {
             // 播放音頻
             await audioElement.play().catch(e => {
                 console.warn('流式音頻播放失敗:', e);
-                // 如果是自動播放被阻止的錯誤，試著創建一個播放按鈕
+                // 如果是自動播放被阻止的錯誤，處理特別情況
                 if (e.name === 'NotAllowedError') {
-                    console.log('自動播放被阻止，創建播放按鈕');
-                    this.createPlayButton(audioSrc, container);
+                    console.log('自動播放被阻止，需要用戶交互');
+                    // 清空隊列避免重複錯誤
+                    this.audioQueue = [];
+                    this._showInteractionRequiredMessage();
+                } else {
+                    // 繼續下一個
+                    setTimeout(() => this.playNextAudioChunk(), 100);
                 }
-                // 繼續下一個
-                setTimeout(() => this.playNextAudioChunk(), 100);
             });
         } catch (error) {
             console.error('播放流式音頻時出錯:', error);
@@ -297,6 +371,47 @@ class AudioHandler {
         };
 
         container.appendChild(playButton);
+    }
+
+    /**
+     * 顯示需要用戶交互的提示信息
+     * @private
+     */
+    _showInteractionRequiredMessage() {
+        const container = document.getElementById('auto-play-container');
+        if (!container) return;
+        
+        // 清空當前容器
+        container.innerHTML = '';
+        
+        // 創建交互提示按鈕
+        const interactionButton = document.createElement('button');
+        interactionButton.innerText = '點擊這裡啟用音頻';
+        interactionButton.className = 'btn primary-btn';
+        interactionButton.style.marginTop = '10px';
+        
+        // 添加點擊事件
+        interactionButton.onclick = () => {
+            // 更新交互時間
+            this.lastInteractionTime = Date.now();
+            
+            // 嘗試激活音頻
+            this._tryActivateAudio();
+            
+            // 移除按鈕
+            interactionButton.remove();
+            
+            // 嘗試恢復音頻播放
+            setTimeout(() => {
+                this.isPlayingStreamingAudio = false;
+                if (this.audioQueue.length > 0) {
+                    this.playNextAudioChunk();
+                }
+            }, 100);
+        };
+        
+        // 添加到容器
+        container.appendChild(interactionButton);
     }
 
     /**
