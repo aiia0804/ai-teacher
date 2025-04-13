@@ -301,7 +301,6 @@ class LLMManager:
                     # 如果content是字符串，轉換為列表格式
                     if isinstance(msg["content"], str):
                         messages[i]["content"] = [{"type": "text", "text": msg["content"]}]
-            
             return messages
         
         else:
@@ -406,7 +405,7 @@ class LLMManager:
         # 移除URL
         text = re.sub(r'https?://\S+', '', text)
         
-        # 移除星號標記（保留內容）
+        # 移除星號標記（保留文本內容）
         text = re.sub(r'\*\*?(.*?)\*\*?', r'\1', text)
         
         # 移除其他可能的特殊標記
@@ -416,184 +415,6 @@ class LLMManager:
         text = re.sub(r'\s+', ' ', text).strip()
         
         return text
-    
-    def generate_stream2(
-        self,
-        messages: Union[str, List[Dict[str, Any]]],
-        callback: Optional[Callable[[str], None]] = None,
-        temperature: Optional[float] = None,
-        top_k: Optional[int] = None,
-        top_p: Optional[float] = None,
-        repetition_penalty: Optional[float] = None,
-        max_new_tokens: Optional[int] = None,
-        min_sentence_length: int = 8,
-    ) -> Generator[str, None, None]:
-        """
-        流式生成文本響應 - 真正的逐token生成並返回生成器
-        
-        Args:
-            messages: 消息列表或單個字符串消息
-            callback: 可選的回調函數，接收生成的文本片段
-            temperature: 生成溫度
-            top_k: Top-K採樣參數
-            top_p: Top-P採樣參數
-            repetition_penalty: 重複懲罰參數
-            max_new_tokens: 最大生成長度
-            min_sentence_length: 最小的句子長度
-            
-        Yields:
-            生成的文本片段，可用於即時TTS處理
-        """
-        # 使用默認值
-        temperature = temperature if temperature is not None else self.temperature
-        top_k = top_k if top_k is not None else self.top_k
-        top_p = top_p if top_p is not None else self.top_p
-        repetition_penalty = repetition_penalty if repetition_penalty is not None else self.repetition_penalty
-        max_new_tokens = max_new_tokens if max_new_tokens is not None else self.max_new_tokens
-        
-        # 準備消息
-        formatted_messages = self.prepare_messages(messages)
-        
-        try:
-            # 使用chat_template處理輸入
-            inputs = self.tokenizer.apply_chat_template(
-                formatted_messages,
-                add_generation_prompt=True,
-                tokenize=True,
-                return_dict=True,
-                return_tensors="pt"
-            ).to(self.model.device)
-            
-            # 創建句子緩衝區和累積文本
-            sentence_buffer = ""
-            accumulated_text = ""
-            should_stop = False  # 標記是否應該停止生成
-            empty_token_count = 0  # 跟踪連續空token數量
-            
-            # 定義停止序列
-            stop_sequences = ["<end_of_turn>", "http://", "https://"]
-            
-            # 使用inference_mode生成
-            with torch.inference_mode():
-                # 為了獲取每個token，我們使用更低層次的接口
-                input_ids = inputs["input_ids"]
-                
-                # 開始生成
-                for _ in range(max_new_tokens):
-                    if should_stop:
-                        break
-                        
-                    # 獲取logits
-                    outputs = self.model(input_ids)
-                    next_token_logits = outputs.logits[:, -1, :]
-                    
-                    # 應用溫度和採樣
-                    if temperature > 0:
-                        # 添加溫度縮放
-                        next_token_logits = next_token_logits / temperature
-                        
-                        # 應用Top-K過濾
-                        if top_k > 0:
-                            indices_to_remove = torch.topk(next_token_logits, k=top_k)[0][:, -1, None]
-                            next_token_logits[next_token_logits < indices_to_remove] = float('-inf')
-                        
-                        # 應用Top-P (nucleus) 過濾
-                        if 0 < top_p < 1.0:
-                            sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
-                            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
-                            
-                            # 移除機率累積超過top_p的token
-                            sorted_indices_to_remove = cumulative_probs > top_p
-                            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                            sorted_indices_to_remove[..., 0] = 0
-                            
-                            indices_to_remove = sorted_indices[sorted_indices_to_remove]
-                            next_token_logits[0, indices_to_remove] = float('-inf')
-                        
-                        # 應用重複懲罰
-                        if repetition_penalty > 1.0:
-                            for i in range(input_ids.shape[1]):
-                                next_token_logits[0, input_ids[0, i]] /= repetition_penalty
-                        
-                        # 採樣下一個token
-                        probs = torch.softmax(next_token_logits, dim=-1)
-                        next_token = torch.multinomial(probs, num_samples=1).item()
-                    else:
-                        # 貪婪解碼
-                        next_token = torch.argmax(next_token_logits, dim=-1).item()
-                    
-                    # 如果是EOS token，結束生成
-                    if next_token == self.tokenizer.eos_token_id:
-                        break
-                    
-                    # 添加到輸入序列
-                    input_ids = torch.cat([input_ids, torch.tensor([[next_token]], device=self.device)], dim=1)
-                    
-                    # 解碼token
-                    token_text = self.tokenizer.decode([next_token])
-                    
-                    # 過濾token
-                    filtered_token = self._filter_text(token_text)
-                    
-                    # 跳過空token
-                    if not filtered_token:
-                        continue
-                    
-                    # 添加到累積文本以檢查停止序列
-                    accumulated_text += filtered_token
-                    
-                    # 直接檢查是否包含停止序列
-                    for stop_seq in stop_sequences:
-                        if stop_seq in accumulated_text:
-                            print(f"\n[檢測到停止序列: '{stop_seq}']")
-                            # 獲取停止序列之前的文本
-                            stop_pos = accumulated_text.find(stop_seq)
-                            final_token = accumulated_text[:stop_pos].replace(sentence_buffer, '')
-                            
-                            # 如果有新內容，添加到緩衝區
-                            if final_token:
-                                sentence_buffer += final_token
-                                
-                                # 如果回調函數存在，調用它
-                                if callback:
-                                    callback(final_token)
-                            
-                            should_stop = True
-                            break
-                    
-                    # 如果應該停止，跳出循環
-                    if should_stop:
-                        break
-                    
-                    # 將token添加到sentence_buffer
-                    sentence_buffer += filtered_token
-                    
-                    # 列印當前token（用於調試）
-                    #print(filtered_token, end="", flush=True)
-                    
-                    # 如果回調函數存在，調用它
-                    if callback:
-                        callback(filtered_token)
-                    
-                    # 檢查是否有完整句子
-                    if any(mark in filtered_token for mark in [".", "!", "?"]) and len(sentence_buffer) >= min_sentence_length:
-                        yield sentence_buffer
-                        sentence_buffer = ""
-                    elif any(mark in filtered_token for mark in [",", ";", ":"]) and len(sentence_buffer) >= min_sentence_length:
-                        yield sentence_buffer
-                        sentence_buffer = ""
-                
-                # 處理最後的緩衝區
-                if sentence_buffer and not should_stop:
-                    yield sentence_buffer
-                
-        except Exception as e:
-            import traceback
-            print(f"流式生成錯誤: {e}")
-            traceback.print_exc()
-            if callback:
-                callback(f"生成過程中發生錯誤: {str(e)}")
-            yield f"生成過程中發生錯誤: {str(e)}"
     
     def generate_stream(
         self,
@@ -607,6 +428,10 @@ class LLMManager:
         min_sentence_length: int = 8,
     ) -> Generator[str, None, None]:
         """流式生成文本響應 - 支持1B和4B模型"""
+        # 記錄開始時間和性能指標
+        start_time = time.time()
+        token_counter = 0
+        
         # 使用默認值
         temperature = temperature if temperature is not None else self.temperature
         top_k = top_k if top_k is not None else self.top_k
@@ -618,6 +443,18 @@ class LLMManager:
         formatted_messages = self.prepare_messages(messages)
         
         try:
+            # 記錄初始GPU內存使用
+            initial_gpu_memory = 0
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()  # 清理緩存
+                initial_gpu_memory = torch.cuda.memory_allocated() / (1024 ** 2)  # MB
+                print(f"初始GPU內存使用: {initial_gpu_memory:.2f} MB")
+            
+            # 記錄輸入消息長度
+            msg_str = str(formatted_messages)
+            input_msg_length = len(msg_str)
+            print(f"輸入消息長度: {input_msg_length} 字符")
+            
             # 根據模型類型使用不同的處理方法
             if self.model_type == "4b":
                 # 4B模型處理
@@ -638,13 +475,19 @@ class LLMManager:
                     return_tensors="pt"
                 ).to(self.model.device)
             
+            # 記錄輸入token數
+            input_tokens = inputs["input_ids"].shape[-1]
+            print(f"輸入token數: {input_tokens}")
+            
+            # 記錄模板處理後的GPU內存
+            if torch.cuda.is_available():
+                template_gpu_memory = torch.cuda.memory_allocated() / (1024 ** 2)
+                print(f"處理模板後GPU內存: {template_gpu_memory:.2f} MB (增加 {template_gpu_memory-initial_gpu_memory:.2f} MB)")
+            
             # 創建句子緩衝區和累積文本
             empty_token_count = 0
 
             should_stop = False  # 標記是否應該停止生成
-            
-            # 定義停止序列
-            #stop_sequences = ["<end_of_turn>", ""]
             
             # 使用inference_mode生成
             with torch.inference_mode():
@@ -652,9 +495,16 @@ class LLMManager:
                 input_ids = inputs["input_ids"]
                 
                 # 開始生成
-                for _ in range(max_new_tokens):
+                for i in range(max_new_tokens):
                     if should_stop:
                         break
+                    
+                    # 每生成10個token記錄一次時間，用於監控生成速度趨勢
+                    if i > 0 and i % 10 == 0:
+                        current_time = time.time()
+                        elapsed = current_time - start_time
+                        tokens_per_second = i / elapsed if elapsed > 0 else 0
+                        print(f"已生成 {i} tokens，當前速度: {tokens_per_second:.2f} tokens/秒")
                         
                     # 獲取logits
                     outputs = self.model(input_ids)
@@ -680,6 +530,7 @@ class LLMManager:
                     filtered_token = token_text
                     if filtered_token: 
                         empty_token_count = 0
+                        token_counter += 1  # 累計實際生成的token數
                     else:
                         empty_token_count += 1
                         # 如果連續空token數量超過限制，提前終止
@@ -696,16 +547,37 @@ class LLMManager:
                         callback(filtered_token)
                     yield filtered_token
                     
-                    # # 檢查是否形成完整句子
-                    # if self._is_sentence_complete(filtered_token, sentence_buffer, min_sentence_length):
-                    #     yield sentence_buffer
-                    #     sentence_buffer = ""
-                
-                    # # 處理剩餘的緩衝區
-                    # if sentence_buffer and not should_stop:
-                    #     yield sentence_buffer
+            # 記錄結束時間和計算性能指標
+            end_time = time.time()
+            total_time = end_time - start_time
+            
+            # 輸出性能報告
+            print("\n========== LLM生成性能報告 ==========")
+            print(f"總生成時間: {total_time:.2f} 秒")
+            print(f"輸入token數: {input_tokens}")
+            print(f"輸出token數: {token_counter}")
+            if total_time > 0:
+                print(f"生成速度: {token_counter / total_time:.2f} tokens/秒")
+            
+            # 顯示GPU內存使用情況
+            if torch.cuda.is_available():
+                final_gpu_memory = torch.cuda.memory_allocated() / (1024 ** 2)
+                print(f"GPU內存使用: {final_gpu_memory:.2f} MB")
+                print(f"GPU內存增加: {final_gpu_memory - initial_gpu_memory:.2f} MB")
+                print(f"GPU缓存总量: {torch.cuda.memory_reserved() / (1024 ** 2):.2f} MB")
+            
+            # 如果花費時間超過一定閾值，給出警告
+            if total_time > 5 and token_counter < 50:
+                print(f"警告: 生成速度較慢! 可能需要考慮縮短對話上下文或優化處理流程。")
+            
+            print("======================================")
                     
         except Exception as e:
+            # 記錄錯誤時的時間，以計算總時間
+            end_time = time.time()
+            total_time = end_time - start_time
+            print(f"\n[錯誤] 生成在 {total_time:.2f} 秒後失敗")
+            
             import traceback
             print(f"流式生成錯誤: {e}")
             traceback.print_exc()
