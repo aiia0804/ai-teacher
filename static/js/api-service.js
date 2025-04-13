@@ -67,11 +67,10 @@ class ApiService {
      */
     async chatWithLLM(message) {
         try {
-            // 準備請求數據
+            // 準備請求數據 - 不再發送本地消息歷史，讓後端使用自己的優化歷史
             const payload = {
                 message: message,
                 conversation_id: this.conversationId,
-                context: this.messages,
                 scenario: 'general'
             };
 
