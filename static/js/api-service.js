@@ -63,15 +63,18 @@ class ApiService {
     /**
      * 與LLM模型進行對話
      * @param {string} message - 用戶消息
+     * @param {string} scenario - 對話場景
+     * @param {string} voice - 選擇的語音文件
      * @returns {Promise<string>} - 模型回應
      */
-    async chatWithLLM(message) {
+    async chatWithLLM(message, scenario = 'general', voice = 'af_heart.pt') {
         try {
             // 準備請求數據 - 不再發送本地消息歷史，讓後端使用自己的優化歷史
             const payload = {
                 message: message,
                 conversation_id: this.conversationId,
-                scenario: 'general'
+                scenario: scenario,
+                voice: voice
             };
 
             const response = await fetch(`${this.API_URL}/llm`, {

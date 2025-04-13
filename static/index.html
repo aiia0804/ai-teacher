@@ -62,10 +62,42 @@
                 </div>
 
                 <div class="control-buttons">
-                    <div class="button-row">
+                    <!-- 隱藏未完成功能按鈕 -->
+                    <div class="button-row" style="display: none;">
                         <button id="play-button" class="btn secondary-btn" disabled>播放錄音</button>
                         <button id="pronunciation-button" class="btn secondary-btn" disabled>檢查發音</button>
                     </div>
+                    
+                    <!-- 場景選擇下拉選單 -->
+                    <div class="scenario-selector">
+                        <label for="scenario-select"><i class="fas fa-theater-masks scenario-icon"></i>選擇對話場景:</label>
+                        <select id="scenario-select" class="form-control">
+                            <option value="general">一般對話</option>
+                            <option value="restaurant">餐廳點餐</option>
+                            <option value="shopping">購物情境</option>
+                            <option value="airport_customs">機場海關</option>
+                            <option value="hotel_checkin">旅館入住</option>
+                            <option value="doctor_visit">看醫生</option>
+                            <option value="job_interview">工作面試</option>
+                            <option value="public_transport">公共交通</option>
+                        </select>
+                        <div class="scenario-hint">選擇一個情境來練習特定場合的英語對話</div>
+                    </div>
+                    
+                    <!-- 語音選擇下拉選單 -->
+                    <div class="scenario-selector voice-selector">
+                        <label for="voice-select"><i class="fas fa-microphone-alt scenario-icon"></i>選擇語音:</label>
+                        <select id="voice-select" class="form-control">
+                            <option value="af_heart.pt">標準美式女性 (默認)</option>
+                            <option value="am_adam.pt">帥氣美式男性</option>
+                            <option value="am_michael.pt">標準美式男性</option>
+                            <option value="bf_lily.pt">標準英式女性</option>
+                            <option value="bm_george.pt">標準英式男性</option>
+                            <option value="af_nicole.pt">悄悄話美式女性</option>
+                        </select>
+                        <div class="scenario-hint">選擇您想聽的AI英語教師的口音和聲音</div>
+                    </div>
+                    
                     <button id="submit-button" class="btn primary-btn" disabled>手動送出</button>
                 </div>
 
@@ -82,8 +114,8 @@
     <div id="auto-play-container"></div>
 
     <!-- JavaScript 文件 -->
-    <script src="js/api-service.js?v=1.0.1"></script>
-    <script src="js/audio-handler.js?v=1.0.1"></script>
-    <script src="js/app.js?v=1.0.1"></script>
+    <script src="js/api-service.js?v=1.0.3"></script>
+    <script src="js/audio-handler.js?v=1.0.3"></script>
+    <script src="js/app.js?v=1.0.3"></script>
 </body>
 </html>

@@ -5,6 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 初始化變數
     let transcript = '';
     let isTranscribing = false;
+    let currentScenario = 'general';
+    let currentVoice = 'af_heart.pt';
 
     // 獲取UI元素
     const recordButton = document.getElementById('record-button');
@@ -18,6 +20,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const transcriptEditor = document.getElementById('transcript-editor');
     const realtimeResponse = document.getElementById('realtime-response');
     const pronunciationFeedback = document.getElementById('pronunciation-feedback');
+    const scenarioSelect = document.getElementById('scenario-select');
+    const voiceSelect = document.getElementById('voice-select');
 
     // 初始化音頻環境
     initAudioEnvironment();
@@ -176,6 +180,22 @@ document.addEventListener('DOMContentLoaded', () => {
             transcript = transcriptEditor.value;
             updateButtonStates();
         });
+
+        // 場景選擇
+        if (scenarioSelect) {
+            scenarioSelect.addEventListener('change', function() {
+                currentScenario = this.value;
+                console.log(`設置場景: ${currentScenario}`);
+            });
+        }
+        
+        // 語音選擇
+        if (voiceSelect) {
+            voiceSelect.addEventListener('change', function() {
+                currentVoice = this.value;
+                console.log(`設置語音: ${currentVoice}`);
+            });
+        }
     }
 
     /**
@@ -264,8 +284,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const loadingId = 'loading-' + Date.now();
             displayLoadingMessage(loadingId);
 
-            // 發送到API
-            const response = await apiService.chatWithLLM(transcript);
+            // 獲取所選場景
+            console.log(`使用場景: ${currentScenario}`);
+            console.log(`使用語音: ${currentVoice}`);
+
+            // 發送到API（包含場景信息和語音信息）
+            const response = await apiService.chatWithLLM(transcript, currentScenario, currentVoice);
 
             // 移除加載消息
             removeLoadingMessage(loadingId);

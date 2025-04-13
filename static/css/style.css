@@ -164,11 +164,11 @@ hr {
 
 /* 按鈕樣式 */
 .btn {
-    padding: 10px 15px;
+    padding: 10px 20px;
     border: none;
     border-radius: 5px;
     cursor: pointer;
-    font-weight: 600;
+    font-weight: 500;
     transition: all 0.3s ease;
 }
 
@@ -229,6 +229,92 @@ hr {
     }
 }
 
+/* 場景選擇器 */
+.scenario-selector {
+    margin: 20px 0;
+    padding: 15px;
+    background-color: #f8f9fa;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    transition: all 0.3s ease;
+}
+
+.scenario-selector:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.scenario-selector label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #2c3e50;
+    font-size: 1rem;
+}
+
+.scenario-selector select {
+    width: 100%;
+    padding: 10px 15px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    background-color: white;
+    font-size: 0.95rem;
+    color: #333;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23464646' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+}
+
+.scenario-selector select:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(65, 105, 225, 0.15);
+}
+
+.scenario-selector .scenario-icon {
+    margin-right: 8px;
+    opacity: 0.7;
+}
+
+/* 場景選擇的提示信息 */
+.scenario-hint {
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: #666;
+    font-style: italic;
+}
+
+/* 語音選擇器特殊樣式 */
+.voice-selector {
+    background-color: #f0f7ff;  /* 稍微不同的背景色 */
+    border-left: 3px solid #4169E1;  /* 左側邊框強調 */
+}
+
+.voice-selector:hover {
+    background-color: #e6f2ff;
+}
+
+.voice-selector select {
+    background-color: #fcfcfc;
+}
+
+/* 標記默認語音的樣式 */
+.voice-selector option[value="af_heart.pt"] {
+    font-weight: bold;
+}
+
+/* 美式和英式語音的圖標 */
+.voice-accent-us::before {
+    content: "🇺🇸";
+    margin-right: 5px;
+}
+
+.voice-accent-uk::before {
+    content: "🇬🇧";
+    margin-right: 5px;
+}
+
 /* 發音反饋樣式 */
 .pronunciation-feedback {
     margin-top: 20px;
@@ -278,5 +364,84 @@ hr {
 @media (max-width: 768px) {
     .button-row {
         flex-direction: column;
+    }
+    
+    .container {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        position: static;
+        order: 3; /* 移到最後 */
+    }
+    
+    .main-content {
+        width: 100%;
+        margin-left: 0;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    /* 在手機上重新排序，把控制面板放在上面 */
+    .control-panel {
+        order: 1;
+        width: 100%;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        margin-bottom: 15px;
+        padding: 15px;
+    }
+    
+    .chat-area {
+        order: 2;
+        width: 100%;
+        margin-top: 10px;
+    }
+    
+    /* 調整聊天容器高度，確保在小屏幕上也有足夠顯示空間 */
+    .chat-container {
+        max-height: 50vh;
+        min-height: 200px;
+    }
+    
+    /* 確保錄音按鈕在手機上足夠大，易於點擊 */
+    .record-btn {
+        width: 100%;
+        padding: 15px;
+        font-size: 1.1em;
+    }
+    
+    /* 優化手機上的場景選擇器 */
+    .scenario-selector {
+        margin: 15px 0;
+    }
+    
+    .scenario-selector select {
+        padding: 12px 15px;
+        font-size: 1rem;
+    }
+}
+
+/* 針對超小屏幕的優化 */
+@media (max-width: 480px) {
+    .chat-container {
+        max-height: 40vh;
+    }
+    
+    .record-btn {
+        padding: 12px;
+    }
+    
+    h2 {
+        font-size: 1.4rem;
+    }
+    
+    .sidebar {
+        padding: 10px;
+    }
+    
+    /* 確保按鈕在小屏幕上更易用 */
+    .btn {
+        margin-bottom: 10px;
     }
 }
