@@ -529,32 +529,45 @@ class LLMManager:
                     # 過濾token
                     filtered_token = token_text
                     
-                    # 計數連續換行符
-                    if filtered_token == "\n" or filtered_token == "\\n":
+                    # 檢查是否為空白字符或換行符
+                    is_newline = filtered_token == "\n" or filtered_token == "\\n"
+                    is_empty = not filtered_token or filtered_token.isspace()
+                    
+                    # 計數連續換行符 - 空白也算作換行符的一部分
+                    if is_newline or is_empty:
                         self.newline_counter += 1
-                        print(f"檢測到換行符: {self.newline_counter}")
-                        # 如果連續換行符超過5個，提前終止
+                        
+                        if is_newline:
+                            print(f"檢測到換行符: {self.newline_counter}")
+                        elif is_empty:
+                            print(f"檢測到空白字符: {self.newline_counter}")
+                            
+                        # 如果連續換行符或空白超過5個，提前終止
                         if self.newline_counter >= 5:
-                            print(f"\n[提前終止] 檢測到連續{self.newline_counter}個換行符")
+                            print(f"\n[提前終止] 檢測到連續{self.newline_counter}個空白/換行字符")
                             should_stop = True
                             break
+                            
+                        # 跳過換行符和空白字符，不產生token
+                        continue
                     else:
-                        self.newline_counter = 0  # 重置計數器
+                        # 非空白非換行，重置計數器
+                        if self.newline_counter > 0:
+                            print(f"檢測到有效字符: '{filtered_token}'，重置換行計數器")
+                        self.newline_counter = 0
                     
-                    if filtered_token: 
-                        empty_token_count = 0
-                        token_counter += 1  # 累計實際生成的token數
-                    else:
+                    # 空token處理
+                    if not filtered_token:
                         empty_token_count += 1
                         # 如果連續空token數量超過限制，提前終止
                         if empty_token_count >= 5:
                             print(f"\n[提前終止] 檢測到連續{empty_token_count}個空token")
                             should_stop = True
                             break
-                    
-                    # 跳過空token
-                    if not filtered_token:
-                        continue
+                        continue  # 跳過空token，不產生輸出
+                    else:
+                        empty_token_count = 0
+                        token_counter += 1  # 累計實際生成的token數
                 
                     if callback:
                         callback(filtered_token)
