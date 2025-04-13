@@ -319,7 +319,10 @@ class TTSManager:
         # 過濾 URL
         text = re.sub(r'https?://\S+|www\.\S+', '', text)
         
-        # 過濾 Markdown 格式符號
+        # 過濾所有星號符號（包括單個*和成對的**）
+        text = re.sub(r'\*', '', text)
+        
+        # 過濾其他 Markdown 格式符號
         text = re.sub(r'\*\*|__|~~|```|\[|\]|\(|\)|#|>|\|', '', text)
         
         # 過濾 emoji
