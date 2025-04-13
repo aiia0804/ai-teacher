@@ -122,6 +122,7 @@ class TTSManager:
             # 加載語音模型
             if os.path.exists(self.voice_path):
                 print(f"加載語音文件: {self.voice_path}")
+                # 使用原始方式載入語音張量
                 self.voice_tensor = torch.load(self.voice_path, weights_only=True)
                 
                 # 測試pipeline調用方式，確定正確的API調用方式
@@ -709,6 +710,43 @@ class TTSManager:
         """析構函數"""
         self.shutdown()
 
+    def set_voice(self, voice_file: str) -> None:
+        """
+        設置或更改TTS使用的語音模型
+        
+        Args:
+            voice_file: 語音模型檔案名稱，如 "af_heart.pt"
+        """
+        # 檢查語音文件是否需要更改
+        if self.voice_file == voice_file:
+            return  # 無需更改
+            
+        print(f"切換語音從 '{self.voice_file}' 到 '{voice_file}'")
+            
+        # 更新語音文件路徑
+        self.voice_file = voice_file
+        voices_dir = self.model_dir / "voices"
+        self.voice_path = voices_dir / voice_file
+        
+        # 確保添加檔案擴展名
+        if not os.path.exists(self.voice_path) and not self.voice_path.name.endswith(".pt"):
+            self.voice_path = voices_dir / f"{voice_file}.pt"
+            
+        # 驗證新語音文件存在
+        if not os.path.exists(self.voice_path):
+            print(f"警告: 找不到語音文件 {self.voice_path}，將使用默認語音")
+            self._check_voice_file()  # 尋找可用的語音文件
+            return
+        
+        try:
+            # 載入新的語音張量
+            device = "cuda" if self.use_cuda and torch.cuda.is_available() else "cpu"
+            self.voice_tensor = torch.load(self.voice_path, weights_only=True)
+            print(f"✅ 成功切換到新語音: {voice_file}")
+        except Exception as e:
+            print(f"❌ 切換語音時出錯: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 # 測試代碼
 if __name__ == "__main__":

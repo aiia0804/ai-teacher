@@ -32,6 +32,7 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = Field(None, description="對話ID，用於維護對話歷史")
     context: Optional[List[Dict[str, Any]]] = Field(None, description="對話上下文")
     scenario: Optional[str] = Field(None, description="對話情境，如general、restaurant等")
+    voice: Optional[str] = Field("af_heart.pt", description="語音模型文件名，如af_heart.pt")
 
 class ChatResponse(BaseModel):
     """對話響應模型"""

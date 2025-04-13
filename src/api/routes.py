@@ -309,29 +309,46 @@ async def chat(request: ChatRequest):
             except:
                 pass
         
+        # 設置要使用的語音模型
+        voice = request.voice if request.voice else "af_heart.pt"
+        logger.info(f"使用語音模型: {voice}")
+        tts_manager.set_voice(voice)
+        
         # 獲取或創建對話歷史
         if request.conversation_id not in conversation_history:
             conversation_history[request.conversation_id] = []
         # 使用提供的上下文或已有的歷史記錄
         context = request.context if request.context else conversation_history[request.conversation_id]
-
         
         # 準備消息
         messages = []
         
+        # 收集所有系統消息（包括場景提示詞和歷史摘要）
+        system_messages = []
+        
         # 添加情境提示詞
         scenario = request.scenario if request.scenario and request.scenario in SCENARIOS else "general"
         system_prompt = SCENARIOS[scenario]
-        messages.append({"role": "system", "content": system_prompt})
+        system_messages.append(system_prompt)
         
         # 整理上下文確保交替的 user/assistant 格式
         processed_context = []
         last_role = None
 
         for msg in context:
-            # 保留系統消息（包括摘要）
+            # 收集系統消息（包括摘要）但不立即添加
             if msg["role"] == "system":
-                processed_context.append(msg)
+                # 提取系統消息內容
+                if isinstance(msg["content"], list):
+                    # 處理複雜結構
+                    for item in msg["content"]:
+                        if isinstance(item, dict) and item.get("type") == "text":
+                            system_messages.append(item["text"])
+                        elif isinstance(item, str):
+                            system_messages.append(item)
+                else:
+                    # 直接添加字符串內容
+                    system_messages.append(msg["content"])
                 continue
                 
             # 處理用戶和助手消息
@@ -348,6 +365,11 @@ async def chat(request: ChatRequest):
             else:
                 processed_context.append(msg)
                 last_role = msg["role"]
+
+        # 將所有系統消息合併為一個，並添加到消息列表的開頭
+        if system_messages:
+            combined_system_message = "\n\n".join(system_messages)
+            messages.append({"role": "system", "content": combined_system_message})
         
         # 確保交替順序，如果最後一條不是 assistant，則添加空assistant回應
         if processed_context and processed_context[-1]["role"] == "assistant" and request.message:
@@ -371,7 +393,7 @@ async def chat(request: ChatRequest):
         
         # 使用流式生成，並即時發送到TTS
         logger.info(f"流式生成對話回應並即時TTS，情境: {scenario}")
-
+        print(f"Messages to LLM: {messages}")
         full_response = ""
         for text_chunk in llm_manager.generate_stream(messages):
             # 累積響應
