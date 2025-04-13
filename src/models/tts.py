@@ -604,8 +604,6 @@ class TTSManager:
                     return None
             else:
                 # 如果隊列為空但有持續的文本輸入，則不要印出太多日誌
-                if not self.text_buffer:
-                    print("音頻隊列已空，等待數據...")
                 return None
                 
             audio_data = self.audio_queue.get(timeout=timeout)
