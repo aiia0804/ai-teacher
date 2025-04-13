@@ -378,8 +378,7 @@ class LLMManager:
                     top_k=top_k,
                     top_p=top_p,
                     repetition_penalty=repetition_penalty,
-                    use_cache=True,
-                    pad_token_id=self.tokenizer.eos_token_id
+                    use_cache=True
                 )
                 
                 # 只保留新生成的部分
@@ -431,6 +430,7 @@ class LLMManager:
         # 記錄開始時間和性能指標
         start_time = time.time()
         token_counter = 0
+        self.newline_counter = 0  # 初始化換行符計數器
         
         # 使用默認值
         temperature = temperature if temperature is not None else self.temperature
@@ -528,6 +528,19 @@ class LLMManager:
                     
                     # 過濾token
                     filtered_token = token_text
+                    
+                    # 計數連續換行符
+                    if filtered_token == "\n" or filtered_token == "\\n":
+                        self.newline_counter += 1
+                        print(f"檢測到換行符: {self.newline_counter}")
+                        # 如果連續換行符超過5個，提前終止
+                        if self.newline_counter >= 5:
+                            print(f"\n[提前終止] 檢測到連續{self.newline_counter}個換行符")
+                            should_stop = True
+                            break
+                    else:
+                        self.newline_counter = 0  # 重置計數器
+                    
                     if filtered_token: 
                         empty_token_count = 0
                         token_counter += 1  # 累計實際生成的token數
