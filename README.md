@@ -8,11 +8,11 @@
 
 ## 機能
 
-- **対話型AI**: 自然な英会話練習のためのインタラクティブな対話システム  
-- **音声認識 (STT)**: ユーザーの発音を認識し、テキストに変換  
-- **テキスト音声合成 (TTS)**: AIが生成したテキストを自然な英語の音声に変換  
-- **発音評価**: 英語発音の精度を評価し、フィードバックを提供  
-- **シナリオベース学習**: レストラン、買い物などの実際のシナリオでの会話練習  
+- **対話型AI**: 自然な英会話練習のためのインタラクティブな対話システム
+- **音声認識 (STT)**: ユーザーの発音を認識し、テキストに変換
+- **テキスト音声合成 (TTS)**: AIが生成したテキストを自然な英語の音声に変換
+- **発音評価**: 英語発音の精度を評価し、フィードバックを提供
+- **シナリオベース学習**: レストラン、買い物などの実際のシナリオでの会話練習
 
 ## デモ動画
 
@@ -41,11 +41,11 @@ ai-teacher/
 
 ## 技術スタック
 
-- **バックエンド**: FastAPI, Python 3.8+  
-- **AI/ML**: PyTorch, Transformers, カスタム音声処理  
-- **使用モデル**:  
-  - LLM → Gemma 3 4B  
-  - TTS → KOKORO  
+- **バックエンド**: FastAPI, Python 3.8+
+- **AI/ML**: PyTorch, Transformers, カスタム音声処理
+- **使用モデル**:
+  - LLM → Gemma 3 4B
+  - TTS → KOKORO
   - STT → Whisper (medium)
 
 
@@ -59,11 +59,11 @@ An AI-powered English learning application that offers an efficient language lea
 
 ## Features
 
-- **Interactive AI**: Practice natural English conversations  
-- **Speech-to-Text (STT)**: Convert spoken input into text  
-- **Text-to-Speech (TTS)**: Read generated text in natural English voice  
-- **Pronunciation Assessment**: Feedback on pronunciation accuracy  
-- **Scenario-based Learning**: Practice real-life situations (e.g., restaurants, shopping)  
+- **Interactive AI**: Practice natural English conversations
+- **Speech-to-Text (STT)**: Convert spoken input into text
+- **Text-to-Speech (TTS)**: Read generated text in natural English voice
+- **Pronunciation Assessment**: Feedback on pronunciation accuracy
+- **Scenario-based Learning**: Practice real-life situations (e.g., restaurants, shopping)
 
 ## Demo Video
 
@@ -92,11 +92,11 @@ ai-teacher/
 
 ## Technology Stack
 
-- **Backend**: FastAPI, Python 3.8+  
-- **AI/ML**: PyTorch, Transformers, Custom audio processing  
-- **Models Used**:  
-  - LLM → Gemma 3 4B  
-  - TTS → KOKORO  
+- **Backend**: FastAPI, Python 3.8+
+- **AI/ML**: PyTorch, Transformers, Custom audio processing
+- **Models Used**:
+  - LLM → Gemma 3 4B
+  - TTS → KOKORO
   - STT → Whisper (medium)
 
 
@@ -110,11 +110,11 @@ ai-teacher/
 
 ## 功能特点
 
-- **交互式AI**：自然的英语对话练习  
-- **语音转文字 (STT)**：将语音识别为文本  
-- **文字转语音 (TTS)**：将生成的文本转换成自然语音  
-- **发音评估**：提供发音准确度反馈  
-- **情景对话练习**：餐厅、购物等真实情境模拟  
+- **交互式AI**：自然的英语对话练习
+- **语音转文字 (STT)**：将语音识别为文本
+- **文字转语音 (TTS)**：将生成的文本转换成自然语音
+- **发音评估**：提供发音准确度反馈
+- **情景对话练习**：餐厅、购物等真实情境模拟
 
 ## 演示视频
 
@@ -143,10 +143,25 @@ ai-teacher/
 
 ## 技术栈
 
-- **后端**：FastAPI, Python 3.8+  
-- **AI/ML**：PyTorch, Transformers, 自定义音频处理  
-- **所用模型**：  
-  - LLM → Gemma 3 4B  
-  - TTS → KOKORO  
+- **后端**：FastAPI, Python 3.8+
+- **AI/ML**：PyTorch, Transformers, 自定义音频处理
+- **所用模型**：
+  - LLM → Gemma 3 4B
+  - TTS → KOKORO
   - STT → Whisper (medium)
 
+
+🪪 ライセンス / License / 许可协议
+
+📄 メインライセンス / Main License
+このプロジェクトのソースコードは MIT License に基づいて公開されています。
+This project’s source code is released under the MIT License.
+本项目的源代码采用 MIT 许可证 公开发布。
+
+🧩 使用されている第三者コンポーネント / Third-party Components / 第三方组件
+本プロジェクトは Google が提供する Gemma 3 モデル を使用しています。使用には Gemma Terms of Use の条件が適用されます。
+一部の依存ライブラリは Apache License 2.0 に基づいています。
+This project uses Google’s Gemma 3 model, which is subject to the Gemma Terms of Use.
+Some components are licensed under the Apache License 2.0.
+本项目使用了 Google 提供的 Gemma 3 模型，其使用需遵守 Gemma 使用条款。
+部分依赖库采用 Apache License 2.0 授权。
